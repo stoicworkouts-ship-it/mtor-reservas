@@ -370,3 +370,14 @@ export async function togglePlan(id: string, active: boolean): Promise<ActionRes
   revalidatePath("/mi-plan");
   return { ok: true, message: active ? "Plan activado." : "Plan desactivado." };
 }
+
+export async function toggleCoach(id: string, active: boolean): Promise<ActionResult> {
+  const supabase = await createClient();
+  const guard = await requireAdmin(supabase);
+  if (!guard.ok) return guard;
+
+  const { error } = await supabase.from("coaches").update({ active }).eq("id", id);
+  if (error) return { ok: false, error: error.message };
+  revalidatePath("/admin");
+  return { ok: true, message: active ? "Entrenador activado." : "Entrenador desactivado." };
+}

@@ -56,8 +56,7 @@ export default async function AdminPage() {
 
   const { data: coaches } = await supabase
     .from("coaches")
-    .select("id, display_name")
-    .eq("active", true)
+    .select("id, display_name, active")
     .order("display_name", { ascending: true });
 
   const { data: scheduleTemplates } = await supabase

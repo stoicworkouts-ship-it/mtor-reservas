@@ -12,6 +12,7 @@ import {
   generateSessionsNow,
   createPlan,
   togglePlan,
+  toggleCoach,
 } from "@/app/actions";
 import { TYPE_LABEL, CATEGORY_OPTIONS, type ClassCategory } from "@/lib/types";
 
@@ -35,7 +36,7 @@ type TodaySession = {
   class_type: { name: string; category: ClassCategory };
 };
 type ClassType = { id: string; name: string; category: ClassCategory; default_capacity: number };
-type Coach = { id: string; display_name: string };
+type Coach = { id: string; display_name: string; active: boolean };
 type ScheduleTemplate = {
   id: string;
   weekday: number;
@@ -364,9 +365,18 @@ function HorarioTab({
           {coaches.map((c, i) => (
             <div
               key={c.id}
-              className={`py-2 text-xs font-semibold ${i < coaches.length - 1 ? "border-b border-border" : ""}`}
+              className={`flex items-center justify-between py-2 text-xs font-semibold ${
+                i < coaches.length - 1 ? "border-b border-border" : ""
+              } ${c.active ? "" : "opacity-50"}`}
             >
               {c.display_name}
+              <button
+                disabled={pending}
+                onClick={() => run(() => toggleCoach(c.id, !c.active))}
+                className="rounded-md px-2.5 py-1.5 text-[11px] font-bold bg-surface2 text-ink"
+              >
+                {c.active ? "Desactivar" : "Activar"}
+              </button>
             </div>
           ))}
         </div>
@@ -465,11 +475,13 @@ function HorarioTab({
           </select>
           <select name="coachId" className="w-full rounded-lg border border-border bg-bg px-3 py-2 text-sm">
             <option value="">Sin entrenador asignado</option>
-            {coaches.map((c) => (
-              <option key={c.id} value={c.id}>
-                {c.display_name}
-              </option>
-            ))}
+            {coaches
+              .filter((c) => c.active)
+              .map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.display_name}
+                </option>
+              ))}
           </select>
           <div className="flex gap-2.5">
             <select name="weekday" required className="flex-1 rounded-lg border border-border bg-bg px-3 py-2 text-sm">
