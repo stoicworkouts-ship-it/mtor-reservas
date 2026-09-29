@@ -62,7 +62,7 @@ export default async function AdminPage() {
   const { data: scheduleTemplates } = await supabase
     .from("schedule_templates")
     .select(
-      "id, weekday, start_time, duration_minutes, room, capacity, active, class_type:class_types(name, category), coach:coaches(display_name)"
+      "id, weekday, start_time, duration_minutes, room, capacity, active, class_type_id, coach_id, class_type:class_types(name, category), coach:coaches(display_name)"
     )
     .order("weekday", { ascending: true })
     .order("start_time", { ascending: true });

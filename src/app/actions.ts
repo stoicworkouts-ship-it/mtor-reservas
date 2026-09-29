@@ -381,3 +381,145 @@ export async function toggleCoach(id: string, active: boolean): Promise<ActionRe
   revalidatePath("/admin");
   return { ok: true, message: active ? "Entrenador activado." : "Entrenador desactivado." };
 }
+
+// Traduce el error típico de "no se puede borrar porque algo más lo usa" a un mensaje claro.
+function friendlyDeleteError(error: { code?: string; message: string }, label: string) {
+  if (error.code === "23503") {
+    return `No se puede eliminar: hay ${label} que todavía lo usan. Desactívalo en vez de eliminarlo, o elimina primero lo que depende de él.`;
+  }
+  return error.message;
+}
+
+export async function updateClassType(id: string, formData: FormData): Promise<ActionResult> {
+  const supabase = await createClient();
+  const guard = await requireAdmin(supabase);
+  if (!guard.ok) return guard;
+
+  const name = formData.get("name") as string;
+  const category = formData.get("category") as ClassCategory;
+  const defaultCapacity = Number(formData.get("defaultCapacity"));
+  if (!name || !category || !defaultCapacity) {
+    return { ok: false, error: "Completa nombre, categoría y cupo." };
+  }
+
+  const { error } = await supabase
+    .from("class_types")
+    .update({ name, category, default_capacity: defaultCapacity })
+    .eq("id", id);
+
+  if (error) return { ok: false, error: error.message };
+  revalidatePath("/admin");
+  revalidatePath("/agenda");
+  return { ok: true, message: "Tipo de clase actualizado." };
+}
+
+export async function deleteClassType(id: string): Promise<ActionResult> {
+  const supabase = await createClient();
+  const guard = await requireAdmin(supabase);
+  if (!guard.ok) return guard;
+
+  const { error } = await supabase.from("class_types").delete().eq("id", id);
+  if (error) return { ok: false, error: friendlyDeleteError(error, "bloques de horario o planes") };
+  revalidatePath("/admin");
+  revalidatePath("/agenda");
+  return { ok: true, message: "Tipo de clase eliminado." };
+}
+
+export async function updateCoach(id: string, formData: FormData): Promise<ActionResult> {
+  const supabase = await createClient();
+  const guard = await requireAdmin(supabase);
+  if (!guard.ok) return guard;
+
+  const displayName = formData.get("displayName") as string;
+  if (!displayName) return { ok: false, error: "Escribe el nombre del entrenador." };
+
+  const { error } = await supabase.from("coaches").update({ display_name: displayName }).eq("id", id);
+  if (error) return { ok: false, error: error.message };
+  revalidatePath("/admin");
+  return { ok: true, message: "Entrenador actualizado." };
+}
+
+export async function deleteCoach(id: string): Promise<ActionResult> {
+  const supabase = await createClient();
+  const guard = await requireAdmin(supabase);
+  if (!guard.ok) return guard;
+
+  const { error } = await supabase.from("coaches").delete().eq("id", id);
+  if (error) return { ok: false, error: friendlyDeleteError(error, "bloques de horario") };
+  revalidatePath("/admin");
+  return { ok: true, message: "Entrenador eliminado." };
+}
+
+export async function updateScheduleTemplate(id: string, formData: FormData): Promise<ActionResult> {
+  const supabase = await createClient();
+  const guard = await requireAdmin(supabase);
+  if (!guard.ok) return guard;
+
+  const classTypeId = formData.get("classTypeId") as string;
+  const coachId = (formData.get("coachId") as string) || null;
+  const weekday = Number(formData.get("weekday"));
+  const startTime = formData.get("startTime") as string;
+  const durationMinutes = Number(formData.get("durationMinutes") || 60);
+  const capacity = Number(formData.get("capacity"));
+  const room = (formData.get("room") as string) || null;
+
+  if (!classTypeId || isNaN(weekday) || !startTime || !capacity) {
+    return { ok: false, error: "Completa tipo de clase, día, hora y cupo." };
+  }
+
+  const { error } = await supabase
+    .from("schedule_templates")
+    .update({
+      class_type_id: classTypeId,
+      coach_id: coachId,
+      weekday,
+      start_time: startTime,
+      duration_minutes: durationMinutes,
+      capacity,
+      room,
+    })
+    .eq("id", id);
+
+  if (error) return { ok: false, error: error.message };
+  revalidatePath("/admin");
+  revalidatePath("/agenda");
+  return { ok: true, message: "Bloque actualizado." };
+}
+
+export async function updatePlan(id: string, formData: FormData): Promise<ActionResult> {
+  const supabase = await createClient();
+  const guard = await requireAdmin(supabase);
+  if (!guard.ok) return guard;
+
+  const name = formData.get("name") as string;
+  const category = formData.get("category") as ClassCategory;
+  const sessionsCount = Number(formData.get("sessionsCount"));
+  const price = Number(formData.get("price"));
+  const durationDays = Number(formData.get("durationDays") || 30);
+
+  if (!name || !category || !sessionsCount || !price) {
+    return { ok: false, error: "Completa nombre, categoría, sesiones y precio." };
+  }
+
+  const { error } = await supabase
+    .from("plans")
+    .update({ name, category, sessions_count: sessionsCount, price, duration_days: durationDays })
+    .eq("id", id);
+
+  if (error) return { ok: false, error: error.message };
+  revalidatePath("/admin");
+  revalidatePath("/mi-plan");
+  return { ok: true, message: "Plan actualizado." };
+}
+
+export async function deletePlan(id: string): Promise<ActionResult> {
+  const supabase = await createClient();
+  const guard = await requireAdmin(supabase);
+  if (!guard.ok) return guard;
+
+  const { error } = await supabase.from("plans").delete().eq("id", id);
+  if (error) return { ok: false, error: friendlyDeleteError(error, "clientes con este plan") };
+  revalidatePath("/admin");
+  revalidatePath("/mi-plan");
+  return { ok: true, message: "Plan eliminado." };
+}
