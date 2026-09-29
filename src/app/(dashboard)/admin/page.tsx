@@ -49,11 +49,40 @@ export default async function AdminPage() {
     bookedBySession[r.session_id] = (bookedBySession[r.session_id] ?? 0) + 1;
   });
 
+  const { data: classTypes } = await supabase
+    .from("class_types")
+    .select("id, name, category, default_capacity")
+    .order("name", { ascending: true });
+
+  const { data: coaches } = await supabase
+    .from("coaches")
+    .select("id, display_name")
+    .eq("active", true)
+    .order("display_name", { ascending: true });
+
+  const { data: scheduleTemplates } = await supabase
+    .from("schedule_templates")
+    .select(
+      "id, weekday, start_time, duration_minutes, room, capacity, active, class_type:class_types(name, category), coach:coaches(display_name)"
+    )
+    .order("weekday", { ascending: true })
+    .order("start_time", { ascending: true });
+
+  const { data: allPlans } = await supabase
+    .from("plans")
+    .select("id, name, category, sessions_count, price, duration_days, active")
+    .order("category", { ascending: true })
+    .order("price", { ascending: true });
+
   return (
     <AdminClient
       payments={(payments as any) ?? []}
       todaySessions={(todaySessions as any) ?? []}
       bookedBySession={bookedBySession}
+      classTypes={(classTypes as any) ?? []}
+      coaches={(coaches as any) ?? []}
+      scheduleTemplates={(scheduleTemplates as any) ?? []}
+      plans={(allPlans as any) ?? []}
     />
   );
 }

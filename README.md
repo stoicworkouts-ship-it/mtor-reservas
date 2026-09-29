@@ -7,9 +7,10 @@ App de agenda y reservas para el gimnasio MTOR (Curicó), construida con Next.js
 - `src/app/(dashboard)/agenda` — calendario con clases grupales y entrenamientos 2:1 / 3:1, con cupos y reserva en un clic.
 - `src/app/(dashboard)/mis-reservas` — reservas del usuario, con cancelación.
 - `src/app/(dashboard)/mi-plan` — planes activos, catálogo, subida de comprobante de transferencia.
-- `src/app/(dashboard)/admin` — aprobación de pagos y ocupación del día (solo rol `admin`).
+- `src/app/(dashboard)/admin` — pagos, ocupación, y gestión de tipos de clase / entrenadores / horario / planes (solo rol `admin`).
 - `supabase/seed.sql` — datos de ejemplo: tipos de clase, entrenadores, planes y horario semanal.
-- `scripts/generate-sessions.mjs` — genera las sesiones concretas del calendario a partir del horario semanal.
+- `supabase/migration_categorias.sql` — agrega las categorías 1:1 y 4:1, y los permisos para que el admin edite el horario y los planes desde la app.
+- `scripts/generate-sessions.mjs` — genera las sesiones concretas del calendario a partir del horario semanal (alternativa desde tu computador; dentro de la app hay un botón "Actualizar calendario ahora" en Admin → Horario que hace lo mismo).
 
 ## Puesta en marcha sin usar la terminal
 

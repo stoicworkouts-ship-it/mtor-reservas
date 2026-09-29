@@ -2,7 +2,7 @@
 
 import { useMemo, useState, useTransition } from "react";
 import { reserveSession, cancelReservation } from "@/app/actions";
-import { TYPE_LABEL, TYPE_VAR, type ClassCategory } from "@/lib/types";
+import { TYPE_LABEL, TYPE_VAR, CATEGORY_OPTIONS, type ClassCategory } from "@/lib/types";
 
 const DIAS = ["Dom", "Lun", "Mar", "Mié", "Jue", "Vie", "Sáb"];
 const MESES = ["ene", "feb", "mar", "abr", "may", "jun", "jul", "ago", "sep", "oct", "nov", "dic"];
@@ -120,7 +120,7 @@ export default function AgendaClient({
       </div>
 
       <div className="flex gap-1.5 overflow-x-auto mb-4">
-        {(["todos", "grupal", "dos_uno", "tres_uno"] as const).map((f) => (
+        {(["todos", ...CATEGORY_OPTIONS.map((o) => o.value)] as const).map((f) => (
           <button
             key={f}
             onClick={() => setFilter(f)}
