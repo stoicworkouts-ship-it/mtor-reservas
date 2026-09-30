@@ -86,3 +86,37 @@ export interface Payment {
   plan: Plan;
   profile?: { full_name: string };
 }
+
+// Personas por clase en los entrenamientos N:1 (fijo). Grupal = null: el cupo lo decide el admin.
+export const CATEGORY_SIZE: Record<ClassCategory, number | null> = {
+  grupal: null,
+  uno_uno: 1,
+  dos_uno: 2,
+  tres_uno: 3,
+  cuatro_uno: 4,
+};
+
+// Lo que incluye un plan: sesiones por categoría.
+export interface PlanItem {
+  category: ClassCategory;
+  sessions_count: number;
+}
+
+// Lo que compró un cliente y cuánto ha usado de cada categoría.
+export interface UserPlanItem {
+  category: ClassCategory;
+  sessions_total: number;
+  sessions_used: number;
+}
+
+// "8 clases grupales + 4 sesiones 2:1"
+export function planItemsLabel(items: PlanItem[]): string {
+  return CATEGORY_OPTIONS.map((o) => items.find((i) => i.category === o.value))
+    .filter((i): i is PlanItem => !!i)
+    .map((i) =>
+      i.category === "grupal"
+        ? `${i.sessions_count} ${i.sessions_count === 1 ? "clase grupal" : "clases grupales"}`
+        : `${i.sessions_count} ${i.sessions_count === 1 ? "sesión" : "sesiones"} ${TYPE_LABEL[i.category]}`
+    )
+    .join(" + ");
+}
