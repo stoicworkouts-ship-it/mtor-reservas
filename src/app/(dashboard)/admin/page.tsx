@@ -68,8 +68,7 @@ export default async function AdminPage() {
 
   const { data: allPlans } = await supabase
     .from("plans")
-    .select("id, name, category, sessions_count, price, duration_days, active")
-    .order("category", { ascending: true })
+    .select("id, name, price, duration_days, active, items:plan_items(category, sessions_count)")
     .order("price", { ascending: true });
 
   return (

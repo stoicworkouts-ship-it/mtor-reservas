@@ -24,7 +24,14 @@ import {
   deletePlan,
   togglePlan,
 } from "@/app/actions";
-import { TYPE_LABEL, CATEGORY_OPTIONS, type ClassCategory } from "@/lib/types";
+import {
+  TYPE_LABEL,
+  CATEGORY_OPTIONS,
+  CATEGORY_SIZE,
+  planItemsLabel,
+  type ClassCategory,
+  type PlanItem,
+} from "@/lib/types";
 import { addDays, chileDayKey, chileTime, dayKeyParts, mondayOf } from "@/lib/time";
 
 function money(n: number) {
@@ -63,11 +70,10 @@ type Coach = { id: string; display_name: string; active: boolean };
 type PlanRow = {
   id: string;
   name: string;
-  category: ClassCategory;
-  sessions_count: number;
   price: number;
   duration_days: number;
   active: boolean;
+  items: PlanItem[];
 };
 
 const TABS = [
@@ -506,6 +512,7 @@ function CalendarioTab({
                         <div className="text-ink2 mt-0.5">
                           {s.duration_minutes} min · {s.coach?.display_name ?? "sin entrenador"}
                           {s.room ? ` · ${s.room}` : ""} · {isDraft ? `cupo ${s.capacity}` : `${booked}/${s.capacity} cupos`}
+                          {overbook(s) > 0 && ` (+${overbook(s)} sobrecupo)`}
                         </div>
                       </div>
                     </div>
@@ -597,6 +604,12 @@ function CalendarioTab({
   );
 }
 
+// Lugares extra sobre el cupo fijo de una clase 1:1, 2:1…
+function overbook(s: SessionRow) {
+  const size = CATEGORY_SIZE[s.class_type.category];
+  return size ? Math.max(0, s.capacity - size) : 0;
+}
+
 // Formulario para agregar (sin session) o editar una clase.
 function SessionForm({
   session,
@@ -617,6 +630,15 @@ function SessionForm({
   onSubmit: (fd: FormData) => void;
   onCancel: () => void;
 }) {
+  const [classTypeId, setClassTypeId] = useState(session?.class_type_id ?? "");
+  const classType = classTypes.find((c) => c.id === classTypeId);
+  // En 1:1, 2:1… el cupo es fijo y solo se agrega sobrecupo; en grupal se edita libre.
+  const size = classType ? CATEGORY_SIZE[classType.category] : null;
+  const [extra, setExtra] = useState(() =>
+    session && size ? Math.max(0, session.capacity - size) : 0
+  );
+  const inputCls = "w-full rounded-lg border border-border bg-bg px-2 py-1.5 text-xs";
+
   return (
     <form
       onSubmit={(e) => {
@@ -626,76 +648,104 @@ function SessionForm({
       className="my-2 rounded-lg bg-surface2 p-2.5 flex flex-col gap-2"
     >
       <div className="flex gap-2">
-        <input
-          name="date"
-          type="date"
-          required
-          defaultValue={date}
-          className={`flex-1 rounded-lg border border-border bg-bg px-2 py-1.5 text-xs ${session ? "" : "hidden"}`}
-        />
-        <input
-          name="time"
-          type="time"
-          required
-          defaultValue={session ? chileTime(session.starts_at) : ""}
-          className="flex-1 rounded-lg border border-border bg-bg px-2 py-1.5 text-xs"
-        />
-        <input
-          name="durationMinutes"
-          type="number"
-          min={15}
-          step={5}
-          defaultValue={session?.duration_minutes ?? 60}
-          title="Duración en minutos"
-          className="w-20 rounded-lg border border-border bg-bg px-2 py-1.5 text-xs"
-        />
+        {session ? (
+          <Field label="Día">
+            <input name="date" type="date" required defaultValue={date} className={inputCls} />
+          </Field>
+        ) : (
+          <input name="date" type="hidden" value={date} />
+        )}
+        <Field label="Hora de inicio">
+          <input
+            name="time"
+            type="time"
+            required
+            defaultValue={session ? chileTime(session.starts_at) : ""}
+            className={inputCls}
+          />
+        </Field>
+        <Field label="Duración (min)">
+          <input
+            name="durationMinutes"
+            type="number"
+            min={15}
+            step={5}
+            defaultValue={session?.duration_minutes ?? 60}
+            className={inputCls}
+          />
+        </Field>
       </div>
-      <select
-        name="classTypeId"
-        required
-        defaultValue={session?.class_type_id ?? ""}
-        className="w-full rounded-lg border border-border bg-bg px-2 py-1.5 text-xs"
-      >
-        <option value="" disabled>
-          Tipo de clase…
-        </option>
-        {classTypes.map((c) => (
-          <option key={c.id} value={c.id}>
-            {c.name} ({TYPE_LABEL[c.category]}) · cupo {c.default_capacity}
-          </option>
-        ))}
-      </select>
-      <div className="flex gap-2">
+
+      <Field label="Tipo de clase">
         <select
-          name="coachId"
-          defaultValue={session?.coach_id ?? ""}
-          className="flex-1 rounded-lg border border-border bg-bg px-2 py-1.5 text-xs"
+          name="classTypeId"
+          required
+          value={classTypeId}
+          onChange={(e) => {
+            setClassTypeId(e.target.value);
+            setExtra(0);
+          }}
+          className={inputCls}
         >
-          <option value="">Sin entrenador</option>
-          {coaches
-            .filter((c) => c.active || c.id === session?.coach_id)
-            .map((c) => (
-              <option key={c.id} value={c.id}>
-                {c.display_name}
-              </option>
-            ))}
+          <option value="" disabled>
+            Elegir…
+          </option>
+          {classTypes.map((c) => (
+            <option key={c.id} value={c.id}>
+              {c.name} ({TYPE_LABEL[c.category]})
+            </option>
+          ))}
         </select>
-        <input
-          name="capacity"
-          type="number"
-          min={1}
-          defaultValue={session?.capacity ?? ""}
-          placeholder="Cupo"
-          title="Vacío = cupo del tipo de clase"
-          className="w-20 rounded-lg border border-border bg-bg px-2 py-1.5 text-xs"
-        />
+      </Field>
+
+      <div className="flex gap-2">
+        <Field label="Entrenador">
+          <select name="coachId" defaultValue={session?.coach_id ?? ""} className={inputCls}>
+            <option value="">Sin entrenador</option>
+            {coaches
+              .filter((c) => c.active || c.id === session?.coach_id)
+              .map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.display_name}
+                </option>
+              ))}
+          </select>
+        </Field>
+        {size ? (
+          <>
+            <Field label={`Cupo ${TYPE_LABEL[classType!.category]}`}>
+              <div className="py-1.5 text-xs font-semibold">{size + extra}</div>
+            </Field>
+            <Field label="Sobrecupo">
+              <input
+                type="number"
+                min={0}
+                max={10}
+                value={extra}
+                onChange={(e) => setExtra(Math.max(0, Number(e.target.value) || 0))}
+                className={inputCls}
+              />
+            </Field>
+            <input type="hidden" name="capacity" value={size + extra} />
+          </>
+        ) : (
+          <Field label="Cupo">
+            <input
+              key={classTypeId}
+              name="capacity"
+              type="number"
+              min={1}
+              defaultValue={session && session.class_type_id === classTypeId ? session.capacity : classType?.default_capacity ?? ""}
+              className={inputCls}
+            />
+          </Field>
+        )}
       </div>
-      <input
-        name="room"
-        defaultValue={session?.room ?? ""}
-        placeholder="Sala / lugar (opcional)"
-        className="w-full rounded-lg border border-border bg-bg px-2 py-1.5 text-xs"
-      />
+
+      <Field label="Sala / lugar (opcional)">
+        <input name="room" defaultValue={session?.room ?? ""} className={inputCls} />
+      </Field>
+
       {booked > 0 && (
         <p className="text-[11px] text-ink2">
           Hay {booked} persona(s) con reserva: si cambias día u hora conservan su cupo, pero avísales.
@@ -715,6 +765,44 @@ function SessionForm({
         </button>
       </div>
     </form>
+  );
+}
+
+// Categoría y cupo de un tipo de clase: en 1:1, 2:1… el cupo es fijo.
+function CategoryCapacityFields({
+  category,
+  capacity,
+  small,
+}: {
+  category?: ClassCategory;
+  capacity?: number;
+  small?: boolean;
+}) {
+  const [cat, setCat] = useState<ClassCategory>(category ?? "grupal");
+  const size = CATEGORY_SIZE[cat];
+  const cls = `w-full rounded-lg border border-border bg-bg px-3 py-2 ${small ? "text-xs" : "text-sm"}`;
+  return (
+    <div className="flex gap-2.5">
+      <Field label="Categoría">
+        <select name="category" required value={cat} onChange={(e) => setCat(e.target.value as ClassCategory)} className={cls}>
+          {CATEGORY_OPTIONS.map((o) => (
+            <option key={o.value} value={o.value}>
+              {o.label}
+            </option>
+          ))}
+        </select>
+      </Field>
+      {size ? (
+        <Field label="Cupo">
+          <div className={`py-2 font-semibold ${small ? "text-xs" : "text-sm"}`}>{size} (fijo)</div>
+          <input type="hidden" name="defaultCapacity" value={size} />
+        </Field>
+      ) : (
+        <Field label="Cupo por defecto">
+          <input name="defaultCapacity" type="number" min={1} required defaultValue={capacity} placeholder="ej. 12" className={cls} />
+        </Field>
+      )}
+    </div>
   );
 }
 
@@ -808,15 +896,10 @@ function ConfigTab({
                 }}
                 className={`py-2.5 flex flex-col gap-2 ${i < classTypes.length - 1 ? "border-b border-border" : ""}`}
               >
-                <input name="name" required defaultValue={c.name} className="w-full rounded-lg border border-border bg-bg px-3 py-2 text-xs" />
-                <div className="flex gap-2">
-                  <select name="category" required defaultValue={c.category} className="flex-1 rounded-lg border border-border bg-bg px-3 py-2 text-xs">
-                    {CATEGORY_OPTIONS.map((o) => (
-                      <option key={o.value} value={o.value}>{o.label}</option>
-                    ))}
-                  </select>
-                  <input name="defaultCapacity" type="number" min={1} required defaultValue={c.default_capacity} className="w-20 rounded-lg border border-border bg-bg px-3 py-2 text-xs" />
-                </div>
+                <Field label="Nombre">
+                  <input name="name" required defaultValue={c.name} className="w-full rounded-lg border border-border bg-bg px-3 py-2 text-xs" />
+                </Field>
+                <CategoryCapacityFields category={c.category} capacity={c.default_capacity} small />
                 <div className="flex gap-1.5">
                   <button type="submit" disabled={pending} className="flex-1 rounded-md py-1.5 text-[11px] font-bold text-accentInk" style={{ background: "var(--accent)" }}>
                     Guardar
@@ -857,15 +940,10 @@ function ConfigTab({
           }}
           className="rounded-2xl border border-border bg-surface p-4 shadow-sm flex flex-col gap-2.5"
         >
-          <input name="name" required placeholder="Nombre (ej. Funcional, Spinning)" className="w-full rounded-lg border border-border bg-bg px-3 py-2 text-sm" />
-          <div className="flex gap-2.5">
-            <select name="category" required className="flex-1 rounded-lg border border-border bg-bg px-3 py-2 text-sm">
-              {CATEGORY_OPTIONS.map((o) => (
-                <option key={o.value} value={o.value}>{o.label}</option>
-              ))}
-            </select>
-            <input name="defaultCapacity" type="number" min={1} required placeholder="Cupo" className="w-24 rounded-lg border border-border bg-bg px-3 py-2 text-sm" />
-          </div>
+          <Field label="Nombre">
+            <input name="name" required placeholder="ej. Funcional, Spinning, Entrenamiento personalizado" className="w-full rounded-lg border border-border bg-bg px-3 py-2 text-sm" />
+          </Field>
+          <CategoryCapacityFields />
           <button disabled={pending} type="submit" className="rounded-lg py-2 text-xs font-bold text-accentInk disabled:opacity-50" style={{ background: "var(--accent)" }}>
             Agregar tipo de clase
           </button>
@@ -937,6 +1015,42 @@ function ConfigTab({
   );
 }
 
+// Etiqueta visible sobre un campo (los placeholders desaparecen cuando el campo ya trae un valor).
+function Field({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <label className="flex-1 flex flex-col gap-1">
+      <span className="text-[11px] font-semibold text-ink2">{label}</span>
+      {children}
+    </label>
+  );
+}
+
+// Cuántas sesiones de cada categoría incluye el plan (vacío = no incluye).
+function PlanItemsFields({ items, small }: { items?: PlanItem[]; small?: boolean }) {
+  const cls = `w-full rounded-lg border border-border bg-bg px-3 py-2 ${small ? "text-xs" : "text-sm"}`;
+  return (
+    <fieldset className="rounded-lg border border-border p-2.5">
+      <legend className="px-1 text-[11px] font-semibold text-ink2">
+        Sesiones que incluye (deja vacío lo que no incluye)
+      </legend>
+      <div className="grid grid-cols-2 sm:grid-cols-5 gap-2">
+        {CATEGORY_OPTIONS.map((o) => (
+          <Field key={o.value} label={o.value === "grupal" ? "Grupales" : o.label}>
+            <input
+              name={`items_${o.value}`}
+              type="number"
+              min={0}
+              defaultValue={items?.find((i) => i.category === o.value)?.sessions_count ?? ""}
+              placeholder="0"
+              className={cls}
+            />
+          </Field>
+        ))}
+      </div>
+    </fieldset>
+  );
+}
+
 function PlanesTab({ plans, pending, run }: { plans: PlanRow[]; pending: boolean; run: RunFn }) {
   const formRef = useRef<HTMLFormElement>(null);
   const [editingPlan, setEditingPlan] = useState<string | null>(null);
@@ -958,17 +1072,21 @@ function PlanesTab({ plans, pending, run }: { plans: PlanRow[]; pending: boolean
               }}
               className={`py-2.5 flex flex-col gap-2 ${i < plans.length - 1 ? "border-b border-border" : ""}`}
             >
-              <input name="name" required defaultValue={p.name} className="w-full rounded-lg border border-border bg-bg px-3 py-2 text-xs" />
-              <select name="category" required defaultValue={p.category} className="w-full rounded-lg border border-border bg-bg px-3 py-2 text-xs">
-                {CATEGORY_OPTIONS.map((o) => (
-                  <option key={o.value} value={o.value}>{o.label}</option>
-                ))}
-              </select>
+              <Field label="Nombre">
+                <input name="name" required defaultValue={p.name} className="w-full rounded-lg border border-border bg-bg px-3 py-2 text-xs" />
+              </Field>
+              <PlanItemsFields items={p.items} small />
               <div className="flex gap-2">
-                <input name="sessionsCount" type="number" min={1} required defaultValue={p.sessions_count} className="flex-1 rounded-lg border border-border bg-bg px-3 py-2 text-xs" />
-                <input name="price" type="number" min={0} required defaultValue={p.price} className="flex-1 rounded-lg border border-border bg-bg px-3 py-2 text-xs" />
+                <Field label="Precio (CLP)">
+                  <input name="price" type="number" min={0} required defaultValue={p.price} className="w-full rounded-lg border border-border bg-bg px-3 py-2 text-xs" />
+                </Field>
+                <Field label="Vigencia (días)">
+                  <input name="durationDays" type="number" min={1} defaultValue={p.duration_days} className="w-full rounded-lg border border-border bg-bg px-3 py-2 text-xs" />
+                </Field>
               </div>
-              <input name="durationDays" type="number" min={1} defaultValue={p.duration_days} className="w-full rounded-lg border border-border bg-bg px-3 py-2 text-xs" />
+              <p className="text-[11px] text-ink2">
+                Los cambios aplican a las próximas compras; quienes ya compraron este plan conservan lo que pagaron.
+              </p>
               <div className="flex gap-1.5">
                 <button type="submit" disabled={pending} className="flex-1 rounded-md py-1.5 text-[11px] font-bold text-accentInk" style={{ background: "var(--accent)" }}>
                   Guardar
@@ -981,8 +1099,10 @@ function PlanesTab({ plans, pending, run }: { plans: PlanRow[]; pending: boolean
           ) : (
             <div key={p.id} className={`flex items-center justify-between gap-2 py-2.5 text-xs ${i < plans.length - 1 ? "border-b border-border" : ""} ${p.active ? "" : "opacity-50"}`}>
               <div>
-                <div className="font-semibold">{p.name} · {TYPE_LABEL[p.category]}</div>
-                <div className="text-ink2 mt-0.5">{p.sessions_count} sesiones · {money(p.price)} · vence a los {p.duration_days} días</div>
+                <div className="font-semibold">{p.name}</div>
+                <div className="text-ink2 mt-0.5">
+                  {planItemsLabel(p.items)} · {money(p.price)} · vigencia {p.duration_days} días
+                </div>
               </div>
               {confirmDeletePlan === p.id ? (
                 <ConfirmDelete
@@ -1013,17 +1133,18 @@ function PlanesTab({ plans, pending, run }: { plans: PlanRow[]; pending: boolean
         className="rounded-2xl border border-border bg-surface p-4 shadow-sm flex flex-col gap-2.5"
       >
         <p className="text-xs font-bold text-ink2 uppercase tracking-wide">Crear plan</p>
-        <input name="name" required placeholder="Nombre (ej. Plan Funcional 8)" className="w-full rounded-lg border border-border bg-bg px-3 py-2 text-sm" />
-        <select name="category" required className="w-full rounded-lg border border-border bg-bg px-3 py-2 text-sm">
-          {CATEGORY_OPTIONS.map((o) => (
-            <option key={o.value} value={o.value}>{o.label}</option>
-          ))}
-        </select>
+        <Field label="Nombre">
+          <input name="name" required placeholder="ej. Plan Mixto 8 + 4" className="w-full rounded-lg border border-border bg-bg px-3 py-2 text-sm" />
+        </Field>
+        <PlanItemsFields />
         <div className="flex gap-2.5">
-          <input name="sessionsCount" type="number" min={1} required placeholder="N° de sesiones" className="flex-1 rounded-lg border border-border bg-bg px-3 py-2 text-sm" />
-          <input name="price" type="number" min={0} required placeholder="Precio (CLP)" className="flex-1 rounded-lg border border-border bg-bg px-3 py-2 text-sm" />
+          <Field label="Precio (CLP)">
+            <input name="price" type="number" min={0} required placeholder="ej. 45000" className="w-full rounded-lg border border-border bg-bg px-3 py-2 text-sm" />
+          </Field>
+          <Field label="Vigencia (días desde que se aprueba el pago)">
+            <input name="durationDays" type="number" min={1} defaultValue={30} className="w-full rounded-lg border border-border bg-bg px-3 py-2 text-sm" />
+          </Field>
         </div>
-        <input name="durationDays" type="number" min={1} defaultValue={30} placeholder="Vigencia en días" className="w-full rounded-lg border border-border bg-bg px-3 py-2 text-sm" />
         <button disabled={pending} type="submit" className="rounded-lg py-2.5 text-xs font-bold text-accentInk disabled:opacity-50" style={{ background: "var(--accent)" }}>
           Crear plan
         </button>
