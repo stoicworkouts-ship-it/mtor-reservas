@@ -3,9 +3,9 @@
 import { useMemo, useState, useTransition } from "react";
 import { reserveSession, cancelReservation } from "@/app/actions";
 import { TYPE_LABEL, TYPE_VAR, CATEGORY_OPTIONS, type ClassCategory } from "@/lib/types";
+import { chileDayKey, chileTime, dayKeyParts } from "@/lib/time";
 
 const DIAS = ["Dom", "Lun", "Mar", "Mié", "Jue", "Vie", "Sáb"];
-const MESES = ["ene", "feb", "mar", "abr", "may", "jun", "jul", "ago", "sep", "oct", "nov", "dic"];
 
 type SessionRow = {
   id: string;
@@ -40,11 +40,10 @@ export default function AgendaClient({
   const [pending, startTransition] = useTransition();
 
   const days = useMemo(() => {
-    const map = new Map<string, { date: Date; items: SessionRow[] }>();
+    const map = new Map<string, { items: SessionRow[] }>();
     sessions.forEach((s) => {
-      const d = new Date(s.starts_at);
-      const key = d.toISOString().slice(0, 10);
-      if (!map.has(key)) map.set(key, { date: d, items: [] });
+      const key = chileDayKey(s.starts_at);
+      if (!map.has(key)) map.set(key, { items: [] });
       map.get(key)!.items.push(s);
     });
     return Array.from(map.entries())
@@ -59,8 +58,12 @@ export default function AgendaClient({
   function reservationFor(sessionId: string) {
     return reservations.find((r) => r.session_id === sessionId);
   }
-  function planFor(category: ClassCategory) {
-    return userPlans.find((p) => p.plan.category === category);
+  // Sesiones que le quedan al usuario sumando todos sus planes de esa categoría,
+  // o null si no tiene ningún plan de esa categoría.
+  function remainingFor(category: ClassCategory) {
+    const plans = userPlans.filter((p) => p.plan.category === category);
+    if (plans.length === 0) return null;
+    return plans.reduce((sum, p) => sum + p.plan.sessions_count - p.sessions_used, 0);
   }
 
   function showToast(msg: string) {
@@ -68,9 +71,9 @@ export default function AgendaClient({
     setTimeout(() => setToast(null), 3000);
   }
 
-  function handleReserve(sessionId: string, category: ClassCategory) {
+  function handleReserve(sessionId: string) {
     startTransition(async () => {
-      const res = await reserveSession(sessionId, category);
+      const res = await reserveSession(sessionId);
       showToast(res.ok ? res.message ?? "Listo." : res.error);
     });
   }
@@ -89,9 +92,10 @@ export default function AgendaClient({
   return (
     <section className="pb-10">
       <div className="flex gap-1.5 overflow-x-auto pb-1 mb-4">
-        {days.map(([key, { date, items }]) => {
+        {days.map(([key, { items }]) => {
           const active = key === activeKey;
-          const isToday = key === new Date().toISOString().slice(0, 10);
+          const isToday = key === chileDayKey(new Date());
+          const { weekday, day } = dayKeyParts(key);
           return (
             <button
               key={key}
@@ -102,10 +106,10 @@ export default function AgendaClient({
               style={active ? { background: "color-mix(in srgb, var(--accent) 12%, var(--surface))" } : { background: "var(--surface)" }}
             >
               <div className="text-[10px] uppercase tracking-wide text-ink2">
-                {DIAS[date.getDay()]}
+                {DIAS[weekday]}
               </div>
               <div className="font-display text-lg leading-tight">
-                {date.getDate()}
+                {day}
                 {isToday && <span style={{ color: "var(--accent)" }}> ·</span>}
               </div>
               <div className="text-[9.5px] font-mono text-ink2">{items.length} bloques</div>
@@ -148,12 +152,8 @@ export default function AgendaClient({
           const pct = Math.round((booked / s.capacity) * 100);
           const full = booked >= s.capacity;
           const mine = reservationFor(s.id);
-          const plan = planFor(s.class_type.category);
-          const remaining = plan ? plan.plan.sessions_count - plan.sessions_used : 0;
-          const time = new Date(s.starts_at).toLocaleTimeString("es-CL", {
-            hour: "2-digit",
-            minute: "2-digit",
-          });
+          const remaining = remainingFor(s.class_type.category);
+          const time = chileTime(s.starts_at);
 
           let barColor = "var(--success)";
           if (pct >= 100) barColor = "var(--danger)";
@@ -182,7 +182,7 @@ export default function AgendaClient({
                 <div className="flex items-center gap-2.5 mt-2.5">
                   <div className="flex-1 min-w-0">
                     <div className="h-[5px] rounded bg-surface2 overflow-hidden">
-                      <div className="h-full rounded" style={{ width: `${pct}%`, background: barColor }} />
+                      <div className="h-full rounded" style={{ width: `${Math.min(pct, 100)}%`, background: barColor }} />
                     </div>
                     <p className="text-[10.5px] font-mono text-ink2 mt-0.5 tabular">
                       {booked} / {s.capacity} cupos
@@ -198,7 +198,7 @@ export default function AgendaClient({
                     >
                       {mine.status === "waitlisted" ? "En espera · Cancelar" : "Reservado · Cancelar"}
                     </button>
-                  ) : !plan ? (
+                  ) : remaining === null ? (
                     <span className="flex-none rounded-lg px-3 py-2 text-xs font-bold bg-surface2 text-ink2">
                       Sin plan
                     </span>
@@ -209,7 +209,7 @@ export default function AgendaClient({
                   ) : (
                     <button
                       disabled={pending}
-                      onClick={() => handleReserve(s.id, s.class_type.category)}
+                      onClick={() => handleReserve(s.id)}
                       className="flex-none rounded-lg px-3 py-2 text-xs font-bold text-accentInk"
                       style={{ background: "var(--accent)" }}
                     >

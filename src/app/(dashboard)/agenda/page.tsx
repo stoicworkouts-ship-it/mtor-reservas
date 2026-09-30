@@ -1,5 +1,6 @@
 import { createClient } from "@/lib/supabase/server";
 import AgendaClient from "./AgendaClient";
+import { chileDayKey } from "@/lib/time";
 
 export const dynamic = "force-dynamic";
 
@@ -29,21 +30,24 @@ export default async function AgendaPage() {
     .eq("user_id", user!.id)
     .in("status", ["confirmed", "waitlisted"]);
 
-  const { data: counts } = await supabase
-    .from("reservations")
-    .select("session_id")
-    .eq("status", "confirmed");
+  // Cada cliente solo puede leer sus propias reservas, así que los cupos
+  // ocupados se piden a una función que devuelve solo los totales.
+  const { data: occupancy } = await supabase.rpc("session_occupancy", {
+    p_from: now.toISOString(),
+    p_to: rangeEnd.toISOString(),
+  });
 
   const bookedBySession: Record<string, number> = {};
-  (counts ?? []).forEach((r: any) => {
-    bookedBySession[r.session_id] = (bookedBySession[r.session_id] ?? 0) + 1;
+  (occupancy ?? []).forEach((r: any) => {
+    bookedBySession[r.session_id] = r.booked;
   });
 
   const { data: userPlans } = await supabase
     .from("user_plans")
     .select("id, sessions_used, status, plan:plans(id, name, category, sessions_count)")
     .eq("user_id", user!.id)
-    .eq("status", "active");
+    .eq("status", "active")
+    .or(`expires_at.is.null,expires_at.gte.${chileDayKey(now)}`);
 
   return (
     <AgendaClient
