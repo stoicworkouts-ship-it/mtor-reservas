@@ -1,7 +1,7 @@
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import AdminClient from "./AdminClient";
-import { chileDayKey } from "@/lib/time";
+import { addDays, chileDayKey, mondayOf } from "@/lib/time";
 
 export const dynamic = "force-dynamic";
 
@@ -27,24 +27,24 @@ export default async function AdminPage() {
     .eq("status", "pending")
     .order("created_at", { ascending: true });
 
-  // "Hoy" es el día en Chile: se pide un rango amplio y se filtra por fecha chilena,
-  // porque el servidor corre en UTC.
+  // Calendario: desde la semana pasada (para poder duplicarla) hasta ~10 semanas más,
+  // con borradores y canceladas. Se pide un rango con margen y se filtra por fecha
+  // chilena, porque el servidor corre en UTC.
   const now = new Date();
-  const todayKey = chileDayKey(now);
-  const rangeStart = new Date(now.getTime() - 36 * 60 * 60 * 1000);
-  const rangeEnd = new Date(now.getTime() + 36 * 60 * 60 * 1000);
+  const firstDay = addDays(mondayOf(chileDayKey(now)), -7);
+  const rangeStart = new Date(now.getTime() - 15 * 24 * 60 * 60 * 1000);
+  const rangeEnd = new Date(now.getTime() + 72 * 24 * 60 * 60 * 1000);
 
-  const { data: nearbySessions } = await supabase
+  const { data: rangeSessions } = await supabase
     .from("sessions")
-    .select("id, starts_at, capacity, class_type:class_types(name, category)")
+    .select(
+      "id, starts_at, duration_minutes, capacity, room, status, class_type_id, coach_id, class_type:class_types(name, category), coach:coaches(display_name)"
+    )
     .gte("starts_at", rangeStart.toISOString())
     .lte("starts_at", rangeEnd.toISOString())
-    .eq("status", "scheduled")
     .order("starts_at", { ascending: true });
 
-  const todaySessions = (nearbySessions ?? []).filter(
-    (s: any) => chileDayKey(s.starts_at) === todayKey
-  );
+  const sessions = (rangeSessions ?? []).filter((s: any) => chileDayKey(s.starts_at) >= firstDay);
 
   const { data: occupancy } = await supabase.rpc("session_occupancy", {
     p_from: rangeStart.toISOString(),
@@ -66,14 +66,6 @@ export default async function AdminPage() {
     .select("id, display_name, active")
     .order("display_name", { ascending: true });
 
-  const { data: scheduleTemplates } = await supabase
-    .from("schedule_templates")
-    .select(
-      "id, weekday, start_time, duration_minutes, room, capacity, active, class_type_id, coach_id, class_type:class_types(name, category), coach:coaches(display_name)"
-    )
-    .order("weekday", { ascending: true })
-    .order("start_time", { ascending: true });
-
   const { data: allPlans } = await supabase
     .from("plans")
     .select("id, name, category, sessions_count, price, duration_days, active")
@@ -83,11 +75,10 @@ export default async function AdminPage() {
   return (
     <AdminClient
       payments={(payments as any) ?? []}
-      todaySessions={todaySessions as any}
+      sessions={sessions as any}
       bookedBySession={bookedBySession}
       classTypes={(classTypes as any) ?? []}
       coaches={(coaches as any) ?? []}
-      scheduleTemplates={(scheduleTemplates as any) ?? []}
       plans={(allPlans as any) ?? []}
     />
   );
