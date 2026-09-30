@@ -9,9 +9,11 @@ const MESES = ["ene", "feb", "mar", "abr", "may", "jun", "jul", "ago", "sep", "o
 
 type Row = {
   id: string;
-  status: "confirmed" | "waitlisted";
+  status: "confirmed" | "waitlisted" | "cancelled";
   session: {
     starts_at: string;
+    status: string;
+    changed_at: string | null;
     room: string | null;
     class_type: { name: string; category: ClassCategory };
     coach: { display_name: string } | null;
@@ -48,8 +50,12 @@ export default function MisReservasClient({ reservations }: { reservations: Row[
         {sorted.map((r) => {
           const { day, month } = dayKeyParts(chileDayKey(r.session.starts_at));
           const time = chileTime(r.session.starts_at);
+          const cancelledByGym = r.session.status === "cancelled";
           return (
-            <div key={r.id} className="flex items-center gap-3 rounded-xl border border-border bg-surface p-3">
+            <div
+              key={r.id}
+              className={`flex items-center gap-3 rounded-xl border border-border bg-surface p-3 ${cancelledByGym ? "opacity-70" : ""}`}
+            >
               <div className="w-11 text-center flex-none">
                 <div className="font-display text-lg leading-none">{day}</div>
                 <div className="text-[9px] uppercase tracking-wide text-ink2">{MESES[month]}</div>
@@ -62,14 +68,26 @@ export default function MisReservasClient({ reservations }: { reservations: Row[
                   {time} · {r.session.coach?.display_name ?? "—"}
                   {r.status === "waitlisted" ? " · en espera" : ""}
                 </p>
+                {cancelledByGym && (
+                  <p className="text-[11px] font-semibold mt-1" style={{ color: "var(--danger)" }}>
+                    El gimnasio canceló esta clase. La sesión volvió a tu plan.
+                  </p>
+                )}
+                {!cancelledByGym && r.session.changed_at && (
+                  <p className="text-[11px] font-semibold mt-1" style={{ color: "var(--warning)" }}>
+                    Esta clase cambió de horario o entrenador. Revisa los datos.
+                  </p>
+                )}
               </div>
-              <button
-                disabled={pending}
-                onClick={() => handleCancel(r.id)}
-                className="flex-none rounded-lg bg-surface2 px-3 py-2 text-xs font-bold text-ink"
-              >
-                Cancelar
-              </button>
+              {!cancelledByGym && (
+                <button
+                  disabled={pending}
+                  onClick={() => handleCancel(r.id)}
+                  className="flex-none rounded-lg bg-surface2 px-3 py-2 text-xs font-bold text-ink"
+                >
+                  Cancelar
+                </button>
+              )}
             </div>
           );
         })}
