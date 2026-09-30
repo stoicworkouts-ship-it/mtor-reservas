@@ -5,8 +5,9 @@
 // Requiere en .env.local: NEXT_PUBLIC_SUPABASE_URL y SUPABASE_SERVICE_ROLE_KEY
 // (la service_role key se usa solo aquí, nunca en el navegador).
 //
-// Corre este script una vez a la semana (a mano, o como Vercel Cron /
-// Supabase Edge Function) para que siempre haya 3 semanas de agenda abierta.
+// Normalmente NO hace falta: Supabase ya lo hace solo cada lunes (tarea
+// programada generate-mtor-sessions-weekly) y en Admin → Horario está el botón
+// "Actualizar calendario ahora".
 
 import { createClient } from "@supabase/supabase-js";
 import { config } from "dotenv";
@@ -27,61 +28,12 @@ if (!supabaseUrl || !serviceKey) {
 
 const supabase = createClient(supabaseUrl, serviceKey);
 
-function pad(n) {
-  return n < 10 ? "0" + n : "" + n;
-}
-
 async function main() {
-  const { data: templates, error } = await supabase
-    .from("schedule_templates")
-    .select("id, class_type_id, coach_id, weekday, start_time, duration_minutes, room, capacity")
-    .eq("active", true);
-
+  // La lógica vive en la base de datos (generate_upcoming_sessions), que usa la
+  // hora de Chile. Ya corre sola cada lunes; este script es solo para forzarlo.
+  const { error } = await supabase.rpc("generate_upcoming_sessions", { weeks_ahead: WEEKS_AHEAD });
   if (error) throw error;
-  if (!templates || templates.length === 0) {
-    console.log("No hay schedule_templates activos. Corre supabase/seed.sql primero.");
-    return;
-  }
-
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-  const mondayThisWeek = new Date(today);
-  mondayThisWeek.setDate(today.getDate() - ((today.getDay() + 6) % 7));
-
-  const rows = [];
-  for (let week = 0; week < WEEKS_AHEAD; week++) {
-    for (const tpl of templates) {
-      const date = new Date(mondayThisWeek);
-      date.setDate(date.getDate() + week * 7 + tpl.weekday);
-      if (date < today) continue; // no genera sesiones en el pasado
-
-      const [h, m] = tpl.start_time.split(":");
-      date.setHours(Number(h), Number(m), 0, 0);
-
-      rows.push({
-        class_type_id: tpl.class_type_id,
-        coach_id: tpl.coach_id,
-        template_id: tpl.id,
-        starts_at: date.toISOString(),
-        duration_minutes: tpl.duration_minutes,
-        room: tpl.room,
-        capacity: tpl.capacity,
-      });
-    }
-  }
-
-  if (rows.length === 0) {
-    console.log("Nada que generar.");
-    return;
-  }
-
-  const { error: insertError, count } = await supabase
-    .from("sessions")
-    .upsert(rows, { onConflict: "template_id,starts_at", ignoreDuplicates: true, count: "exact" });
-
-  if (insertError) throw insertError;
-
-  console.log(`Listo. ${rows.length} sesiones revisadas/creadas para las próximas ${WEEKS_AHEAD} semanas.`);
+  console.log(`Listo. Calendario actualizado para las próximas ${WEEKS_AHEAD} semanas.`);
 }
 
 main().catch((err) => {
