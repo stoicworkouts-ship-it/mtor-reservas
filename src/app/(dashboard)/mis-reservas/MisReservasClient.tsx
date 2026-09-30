@@ -3,6 +3,7 @@
 import { useState, useTransition } from "react";
 import { cancelReservation } from "@/app/actions";
 import { TYPE_LABEL, type ClassCategory } from "@/lib/types";
+import { chileDayKey, chileTime, dayKeyParts } from "@/lib/time";
 
 const MESES = ["ene", "feb", "mar", "abr", "may", "jun", "jul", "ago", "sep", "oct", "nov", "dic"];
 
@@ -45,13 +46,13 @@ export default function MisReservasClient({ reservations }: { reservations: Row[
       )}
       <div className="flex flex-col gap-2.5">
         {sorted.map((r) => {
-          const d = new Date(r.session.starts_at);
-          const time = d.toLocaleTimeString("es-CL", { hour: "2-digit", minute: "2-digit" });
+          const { day, month } = dayKeyParts(chileDayKey(r.session.starts_at));
+          const time = chileTime(r.session.starts_at);
           return (
             <div key={r.id} className="flex items-center gap-3 rounded-xl border border-border bg-surface p-3">
               <div className="w-11 text-center flex-none">
-                <div className="font-display text-lg leading-none">{d.getDate()}</div>
-                <div className="text-[9px] uppercase tracking-wide text-ink2">{MESES[d.getMonth()]}</div>
+                <div className="font-display text-lg leading-none">{day}</div>
+                <div className="text-[9px] uppercase tracking-wide text-ink2">{MESES[month]}</div>
               </div>
               <div className="flex-1 min-w-0">
                 <h4 className="font-bold text-sm">

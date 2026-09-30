@@ -18,5 +18,11 @@ export default async function MisReservasPage() {
     .in("status", ["confirmed", "waitlisted"])
     .order("created_at", { ascending: false });
 
-  return <MisReservasClient reservations={(reservations as any) ?? []} />;
+  // Solo las que todavía no empiezan.
+  const now = Date.now();
+  const upcoming = (reservations ?? []).filter(
+    (r: any) => r.session && new Date(r.session.starts_at).getTime() > now
+  );
+
+  return <MisReservasClient reservations={upcoming as any} />;
 }
