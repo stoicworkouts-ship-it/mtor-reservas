@@ -9,7 +9,9 @@
 --   1. schema.sql              (este archivo)
 --   2. migration_seguridad.sql
 --   3. migration_calendario.sql
---   4. seed.sql                (opcional: datos de ejemplo)
+--   4. migration_cupos.sql
+--   5. migration_planes.sql
+--   6. seed.sql                (opcional: datos de ejemplo)
 --
 -- En el proyecto actual NO hace falta ejecutar este archivo: solo
 -- sirve como respaldo y referencia de cómo está armada la base.
