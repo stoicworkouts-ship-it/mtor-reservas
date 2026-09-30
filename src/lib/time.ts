@@ -30,3 +30,14 @@ export function dayKeyParts(key: string) {
   const date = new Date(Date.UTC(y, m - 1, d));
   return { weekday: date.getUTCDay(), day: d, month: m - 1 };
 }
+
+// Suma días a una clave "YYYY-MM-DD".
+export function addDays(key: string, n: number): string {
+  const [y, m, d] = key.split("-").map(Number);
+  return new Date(Date.UTC(y, m - 1, d + n)).toISOString().slice(0, 10);
+}
+
+// Lunes de la semana de una clave "YYYY-MM-DD".
+export function mondayOf(key: string): string {
+  return addDays(key, -((dayKeyParts(key).weekday + 6) % 7));
+}
