@@ -22,6 +22,7 @@ import {
   togglePlan,
 } from "@/app/actions";
 import { TYPE_LABEL, CATEGORY_OPTIONS, type ClassCategory } from "@/lib/types";
+import { chileDayKey, chileTime } from "@/lib/time";
 
 function money(n: number) {
   return "$" + n.toLocaleString("es-CL");
@@ -169,7 +170,7 @@ function PagosTab({ payments, pending, run }: { payments: Payment[]; pending: bo
                 <b>{p.profile?.full_name}</b> · {p.plan.name}
               </div>
               <div className="text-ink2 mt-0.5">
-                {money(p.amount)} · {p.created_at.slice(0, 10).split("-").reverse().join("-")}
+                {money(p.amount)} · {chileDayKey(p.created_at).split("-").reverse().join("-")}
               </div>
             </div>
             <div className="flex gap-1.5 flex-none">
@@ -215,7 +216,7 @@ function OcupacionTab({
           let barColor = "var(--success)";
           if (pct >= 100) barColor = "var(--danger)";
           else if (pct >= 70) barColor = "var(--warning)";
-          const time = new Date(s.starts_at).toLocaleTimeString("es-CL", { hour: "2-digit", minute: "2-digit" });
+          const time = chileTime(s.starts_at);
           return (
             <div
               key={s.id}
