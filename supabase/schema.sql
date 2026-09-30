@@ -8,7 +8,8 @@
 -- en este orden:
 --   1. schema.sql              (este archivo)
 --   2. migration_seguridad.sql
---   3. seed.sql                (opcional: datos de ejemplo)
+--   3. migration_calendario.sql
+--   4. seed.sql                (opcional: datos de ejemplo)
 --
 -- En el proyecto actual NO hace falta ejecutar este archivo: solo
 -- sirve como respaldo y referencia de cómo está armada la base.
