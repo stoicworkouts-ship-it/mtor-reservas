@@ -3,6 +3,7 @@
 import { useRef, useState, useTransition } from "react";
 import { uploadPayment } from "@/app/actions";
 import { TYPE_LABEL, type ClassCategory } from "@/lib/types";
+import { chileDayKey } from "@/lib/time";
 
 type UserPlan = {
   id: string;
@@ -169,7 +170,7 @@ export default function MiPlanClient({
             <div>
               <div>{p.plan.name}</div>
               <div className="text-ink2 mt-0.5">
-                {money(p.amount)} · {p.created_at.slice(0, 10).split("-").reverse().join("-")}
+                {money(p.amount)} · {chileDayKey(p.created_at).split("-").reverse().join("-")}
               </div>
             </div>
             <span
