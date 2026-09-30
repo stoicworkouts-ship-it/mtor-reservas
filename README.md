@@ -11,6 +11,8 @@ App de agenda y reservas para el gimnasio MTOR (Curicó), construida con Next.js
 - `supabase/schema.sql` — estructura de la base de datos (tablas, permisos). Respaldo del proyecto en producción.
 - `supabase/migration_seguridad.sql` — funciones de reserva, cancelación, pagos y calendario, y reglas de seguridad.
 - `supabase/migration_calendario.sql` — calendario armado semana a semana por el admin: borradores, publicar, duplicar semanas, editar y cancelar clases.
+- `supabase/migration_cupos.sql` — cupo fijo en 1:1, 2:1, 3:1 y 4:1 (con sobrecupo opcional por clase).
+- `supabase/migration_planes.sql` — planes combinados: cada plan incluye sesiones de una o más categorías (ej. 8 grupales + 4 de 2:1).
 - `supabase/seed.sql` — datos de ejemplo: tipos de clase, entrenadores y planes (el "horario semanal" que también crea ya no se usa).
 - `supabase/migration_categorias.sql` — histórico: ya está incluido en `schema.sql`.
 - `scripts/generate-sessions.mjs` — histórico: generaba clases desde un horario fijo. Ya no se usa.
@@ -20,7 +22,7 @@ App de agenda y reservas para el gimnasio MTOR (Curicó), construida con Next.js
 ### 1. Supabase
 1. Crea un proyecto en [supabase.com](https://supabase.com) (región São Paulo).
 2. En **Database → Extensions**, activa **pg_cron**.
-3. En el **SQL Editor**, pega y ejecuta, en este orden: `supabase/schema.sql`, `supabase/migration_seguridad.sql`, `supabase/migration_calendario.sql` y (opcional) `supabase/seed.sql`.
+3. En el **SQL Editor**, pega y ejecuta, en este orden: `supabase/schema.sql`, `supabase/migration_seguridad.sql`, `supabase/migration_calendario.sql`, `supabase/migration_cupos.sql`, `supabase/migration_planes.sql` y (opcional) `supabase/seed.sql`.
 4. En **Authentication → Providers**, confirma que **Email** esté habilitado.
 5. En **Settings → API**, copia el **Project URL** y la clave **anon public** — los vas a necesitar en el paso 3.
 
@@ -48,7 +50,8 @@ En **Admin → Calendario** agrega las clases de la semana (o duplica una semana
 
 ## Reglas de reserva
 
-- Para reservar hace falta un plan activo, vigente el día de la clase, de la misma categoría (grupal, 1:1, 2:1…) y con sesiones disponibles.
+- Un plan puede combinar categorías (ej. 8 clases grupales + 4 sesiones 2:1); cada categoría tiene su propio contador.
+- Para reservar hace falta un plan activo, vigente el día de la clase y con sesiones disponibles en la categoría de esa clase (grupal, 1:1, 2:1…).
 - Si el bloque está lleno, el cliente queda en lista de espera. Cuando alguien cancela, sube automáticamente el primero de la lista que tenga plan válido.
 - Cancelar con 2 horas o más de anticipación devuelve la sesión al plan. Con menos de 2 horas se libera el cupo, pero la sesión se pierde. Se cambia en `cancel_reservation` (`v_limite`).
 - Los planes vencidos pasan solos a "expired" cada noche.
@@ -59,6 +62,7 @@ En **Admin → Calendario** agrega las clases de la semana (o duplica una semana
 - Todo lo que se agrega o duplica queda como **borrador**: los clientes no lo ven hasta que el admin pulsa **Publicar semana**. **Descartar borradores** borra los borradores de esa semana.
 - Una clase publicada se puede **editar** (día, hora, entrenador, cupo, sala) o **cancelar**. Si tiene reservas, la app pide confirmación; al cancelar, la sesión vuelve al plan de quienes reservaron. Una clase cancelada se puede **reactivar** (quienes tenían reserva deben volver a reservar).
 - Los tipos de clase y entrenadores se configuran en **Admin → Configuración**.
+- Cupos: en las clases **grupales** el admin elige el cupo. En **1:1, 2:1, 3:1 y 4:1** el cupo es fijo (1, 2, 3 o 4); en una clase puntual se puede agregar **sobrecupo**.
 - La app todavía no envía avisos: cuando cambia o se cancela una clase con reservas, hay que avisar a los clientes. En **Mis reservas** ven el aviso.
 
 ## Desarrollo local (opcional, si más adelante usas terminal)
