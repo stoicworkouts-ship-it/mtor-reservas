@@ -6,50 +6,26 @@ import type { ClassCategory } from "@/lib/types";
 
 export type ActionResult = { ok: true; message?: string } | { ok: false; error: string };
 
-// Busca el plan activo del usuario que cubra esta categoría y que tenga sesiones disponibles.
-async function findUsablePlan(
-  supabase: Awaited<ReturnType<typeof createClient>>,
-  userId: string,
-  category: ClassCategory
-) {
-  const { data, error } = await supabase
-    .from("user_plans")
-    .select("id, sessions_used, plan:plans!inner(sessions_count, category)")
-    .eq("user_id", userId)
-    .eq("status", "active")
-    .eq("plan.category", category);
+const MAX_RECEIPT_BYTES = 10 * 1024 * 1024;
+const RECEIPT_TYPES: Record<string, string> = {
+  "image/jpeg": "jpg",
+  "image/png": "png",
+  "image/webp": "webp",
+  "image/heic": "heic",
+  "image/heif": "heif",
+  "application/pdf": "pdf",
+};
 
-  if (error || !data) return null;
-
-  const usable = data.find(
-    (row: any) => row.sessions_used < row.plan.sessions_count
-  );
-  return usable ?? null;
-}
-
-export async function reserveSession(
-  sessionId: string,
-  category: ClassCategory
-): Promise<ActionResult> {
+// La función book_session elige el plan del usuario que corresponde a la sesión
+// y revisa cupo, categoría, vigencia y sesiones disponibles.
+export async function reserveSession(sessionId: string): Promise<ActionResult> {
   const supabase = await createClient();
   const {
     data: { user },
   } = await supabase.auth.getUser();
   if (!user) return { ok: false, error: "Debes iniciar sesión." };
 
-  const plan = await findUsablePlan(supabase, user.id, category);
-  if (!plan) {
-    return {
-      ok: false,
-      error:
-        "No tienes un plan activo con sesiones disponibles para este tipo de clase. Revisa Mi plan.",
-    };
-  }
-
-  const { data, error } = await supabase.rpc("book_session", {
-    p_session_id: sessionId,
-    p_user_plan_id: plan.id,
-  });
+  const { data, error } = await supabase.rpc("book_session", { p_session_id: sessionId });
 
   if (error) return { ok: false, error: error.message };
 
@@ -74,7 +50,7 @@ export async function cancelReservation(reservationId: string): Promise<ActionRe
   } = await supabase.auth.getUser();
   if (!user) return { ok: false, error: "Debes iniciar sesión." };
 
-  const { error } = await supabase.rpc("cancel_reservation", {
+  const { data: refunded, error } = await supabase.rpc("cancel_reservation", {
     p_reservation_id: reservationId,
   });
 
@@ -84,7 +60,12 @@ export async function cancelReservation(reservationId: string): Promise<ActionRe
   revalidatePath("/mis-reservas");
   revalidatePath("/mi-plan");
 
-  return { ok: true, message: "Reserva cancelada." };
+  return {
+    ok: true,
+    message: refunded
+      ? "Reserva cancelada."
+      : "Reserva cancelada. Como faltaban menos de 2 horas, la sesión no se devuelve a tu plan.",
+  };
 }
 
 export async function uploadPayment(formData: FormData): Promise<ActionResult> {
@@ -100,88 +81,42 @@ export async function uploadPayment(formData: FormData): Promise<ActionResult> {
   if (!planId || !file || file.size === 0) {
     return { ok: false, error: "Selecciona un plan y adjunta el comprobante." };
   }
+  const ext = RECEIPT_TYPES[file.type];
+  if (!ext) return { ok: false, error: "El comprobante debe ser una foto (JPG, PNG, HEIC) o un PDF." };
+  if (file.size > MAX_RECEIPT_BYTES) return { ok: false, error: "El archivo pesa más de 10 MB." };
 
-  const { data: plan, error: planError } = await supabase
-    .from("plans")
-    .select("id, price, category, sessions_count, duration_days")
-    .eq("id", planId)
-    .single();
-
-  if (planError || !plan) return { ok: false, error: "El plan seleccionado no existe." };
-
-  // Crea el plan del usuario en estado 'pending' hasta que se apruebe el pago.
-  const { data: userPlan, error: userPlanError } = await supabase
-    .from("user_plans")
-    .insert({ user_id: user.id, plan_id: plan.id, status: "pending" })
-    .select("id")
-    .single();
-
-  if (userPlanError || !userPlan) {
-    return { ok: false, error: "No se pudo crear el plan pendiente." };
-  }
-
-  const ext = file.name.split(".").pop();
   const path = `${user.id}/${Date.now()}.${ext}`;
   const { error: uploadError } = await supabase.storage
     .from("comprobantes")
-    .upload(path, file);
+    .upload(path, file, { contentType: file.type });
 
   if (uploadError) {
     return { ok: false, error: "No se pudo subir el archivo: " + uploadError.message };
   }
 
-  const { error: paymentError } = await supabase.from("payments").insert({
-    user_id: user.id,
-    plan_id: plan.id,
-    user_plan_id: userPlan.id,
-    amount: plan.price,
-    method: "transferencia",
-    status: "pending",
-    receipt_path: path,
+  // Crea el plan pendiente y el pago en un solo paso; el precio lo pone la base de datos.
+  const { error } = await supabase.rpc("request_plan", {
+    p_plan_id: planId,
+    p_receipt_path: path,
   });
 
-  if (paymentError) return { ok: false, error: paymentError.message };
+  if (error) {
+    await supabase.storage.from("comprobantes").remove([path]);
+    return { ok: false, error: error.message };
+  }
 
   revalidatePath("/mi-plan");
+  revalidatePath("/admin");
   return { ok: true, message: "Comprobante enviado. Quedará pendiente de aprobación." };
 }
 
 export async function approvePayment(paymentId: string): Promise<ActionResult> {
   const supabase = await createClient();
+  const guard = await requireAdmin(supabase);
+  if (!guard.ok) return guard;
 
-  const { data: payment, error: fetchError } = await supabase
-    .from("payments")
-    .select("id, user_plan_id, plan:plans!inner(duration_days)")
-    .eq("id", paymentId)
-    .single();
-
-  if (fetchError || !payment) return { ok: false, error: "Pago no encontrado." };
-
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-
-  const startsAt = new Date();
-  const expiresAt = new Date();
-  expiresAt.setDate(expiresAt.getDate() + (payment as any).plan.duration_days);
-
-  const { error: planError } = await supabase
-    .from("user_plans")
-    .update({
-      status: "active",
-      starts_at: startsAt.toISOString().slice(0, 10),
-      expires_at: expiresAt.toISOString().slice(0, 10),
-    })
-    .eq("id", payment.user_plan_id);
-
-  if (planError) return { ok: false, error: planError.message };
-
-  const { error: paymentError } = await supabase
-    .from("payments")
-    .update({ status: "approved", reviewed_by: user?.id, reviewed_at: new Date().toISOString() })
-    .eq("id", paymentId);
-
-  if (paymentError) return { ok: false, error: paymentError.message };
+  const { error } = await supabase.rpc("approve_payment", { p_payment_id: paymentId });
+  if (error) return { ok: false, error: error.message };
 
   revalidatePath("/admin");
   return { ok: true, message: "Pago aprobado y plan activado." };
@@ -189,26 +124,11 @@ export async function approvePayment(paymentId: string): Promise<ActionResult> {
 
 export async function rejectPayment(paymentId: string): Promise<ActionResult> {
   const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const guard = await requireAdmin(supabase);
+  if (!guard.ok) return guard;
 
-  const { data: payment } = await supabase
-    .from("payments")
-    .select("user_plan_id")
-    .eq("id", paymentId)
-    .single();
-
-  const { error: paymentError } = await supabase
-    .from("payments")
-    .update({ status: "rejected", reviewed_by: user?.id, reviewed_at: new Date().toISOString() })
-    .eq("id", paymentId);
-
-  if (paymentError) return { ok: false, error: paymentError.message };
-
-  if (payment?.user_plan_id) {
-    await supabase.from("user_plans").update({ status: "cancelled" }).eq("id", payment.user_plan_id);
-  }
+  const { error } = await supabase.rpc("reject_payment", { p_payment_id: paymentId });
+  if (error) return { ok: false, error: error.message };
 
   revalidatePath("/admin");
   return { ok: true, message: "Pago rechazado." };
