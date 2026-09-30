@@ -4,7 +4,11 @@ import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import type { ClassCategory } from "@/lib/types";
 
-export type ActionResult = { ok: true; message?: string } | { ok: false; error: string };
+// needsConfirm: la acción no se aplicó porque afecta a personas con reserva;
+// `error` trae la pregunta para el admin y se vuelve a llamar con force = true.
+export type ActionResult =
+  | { ok: true; message?: string }
+  | { ok: false; error: string; needsConfirm?: boolean };
 
 const MAX_RECEIPT_BYTES = 10 * 1024 * 1024;
 const RECEIPT_TYPES: Record<string, string> = {
@@ -184,70 +188,203 @@ export async function createCoach(formData: FormData): Promise<ActionResult> {
   return { ok: true, message: "Entrenador agregado." };
 }
 
-export async function createScheduleTemplate(formData: FormData): Promise<ActionResult> {
+// ---------------------------------------------------------------
+// Calendario: el admin arma cada semana. Todo lo nuevo queda como
+// borrador hasta que publica la semana.
+// ---------------------------------------------------------------
+
+function people(n: number) {
+  return n === 1 ? "1 persona" : `${n} personas`;
+}
+
+function revalidateCalendar() {
+  revalidatePath("/admin");
+  revalidatePath("/agenda");
+  revalidatePath("/mis-reservas");
+  revalidatePath("/mi-plan");
+}
+
+function readSessionForm(formData: FormData) {
+  const capacity = formData.get("capacity") as string;
+  return {
+    date: formData.get("date") as string,
+    time: formData.get("time") as string,
+    durationMinutes: Number(formData.get("durationMinutes") || 60),
+    classTypeId: formData.get("classTypeId") as string,
+    coachId: (formData.get("coachId") as string) || null,
+    // vacío = cupo por defecto del tipo de clase
+    capacity: capacity ? Number(capacity) : null,
+    room: (formData.get("room") as string) || null,
+  };
+}
+
+export async function createSession(formData: FormData): Promise<ActionResult> {
   const supabase = await createClient();
   const guard = await requireAdmin(supabase);
   if (!guard.ok) return guard;
 
-  const classTypeId = formData.get("classTypeId") as string;
-  const coachId = (formData.get("coachId") as string) || null;
-  const weekday = Number(formData.get("weekday"));
-  const startTime = formData.get("startTime") as string;
-  const durationMinutes = Number(formData.get("durationMinutes") || 60);
-  const capacity = Number(formData.get("capacity"));
-  const room = (formData.get("room") as string) || null;
-
-  if (!classTypeId || isNaN(weekday) || !startTime || !capacity) {
-    return { ok: false, error: "Completa tipo de clase, día, hora y cupo." };
+  const f = readSessionForm(formData);
+  if (!f.date || !f.time || !f.classTypeId) {
+    return { ok: false, error: "Completa día, hora y tipo de clase." };
   }
 
-  const { error } = await supabase.from("schedule_templates").insert({
-    class_type_id: classTypeId,
-    coach_id: coachId,
-    weekday,
-    start_time: startTime,
-    duration_minutes: durationMinutes,
-    capacity,
-    room,
+  const { error } = await supabase.rpc("create_session", {
+    p_date: f.date,
+    p_time: f.time,
+    p_duration_minutes: f.durationMinutes,
+    p_class_type_id: f.classTypeId,
+    p_coach_id: f.coachId,
+    p_capacity: f.capacity,
+    p_room: f.room,
   });
-
   if (error) return { ok: false, error: error.message };
-  revalidatePath("/admin");
-  return { ok: true, message: "Bloque agregado al horario." };
+
+  revalidateCalendar();
+  return { ok: true, message: "Clase agregada como borrador. Publica la semana para que la vean los clientes." };
 }
 
-export async function toggleScheduleTemplate(id: string, active: boolean): Promise<ActionResult> {
+export async function updateSession(
+  sessionId: string,
+  formData: FormData,
+  force = false
+): Promise<ActionResult> {
   const supabase = await createClient();
   const guard = await requireAdmin(supabase);
   if (!guard.ok) return guard;
 
-  const { error } = await supabase.from("schedule_templates").update({ active }).eq("id", id);
+  const f = readSessionForm(formData);
+  if (!f.date || !f.time || !f.classTypeId) {
+    return { ok: false, error: "Completa día, hora y tipo de clase." };
+  }
+
+  const { data, error } = await supabase.rpc("update_session", {
+    p_session_id: sessionId,
+    p_date: f.date,
+    p_time: f.time,
+    p_duration_minutes: f.durationMinutes,
+    p_class_type_id: f.classTypeId,
+    p_coach_id: f.coachId,
+    p_capacity: f.capacity,
+    p_room: f.room,
+    p_force: force,
+  });
   if (error) return { ok: false, error: error.message };
-  revalidatePath("/admin");
-  return { ok: true, message: active ? "Bloque activado." : "Bloque desactivado." };
+
+  const r = data as {
+    needs_confirmation: boolean;
+    people: number;
+    time_changed?: boolean;
+    category_changed?: boolean;
+    capacity_lowered?: boolean;
+  };
+  if (r.needs_confirmation) {
+    const effects = [
+      r.time_changed && "La clase cambia de día u hora; avísales.",
+      r.category_changed &&
+        "Como el tipo de clase cambia de categoría, esas reservas se cancelan y la sesión vuelve a sus planes.",
+      r.capacity_lowered &&
+        "El cupo nuevo es menor: nadie pierde su reserva, pero la clase puede quedar sobre el cupo.",
+    ].filter(Boolean);
+    return {
+      ok: false,
+      needsConfirm: true,
+      error: `Hay ${people(r.people)} con reserva en esta clase. ${effects.join(" ")} ¿Continuar?`,
+    };
+  }
+
+  revalidateCalendar();
+  return {
+    ok: true,
+    message:
+      r.people > 0 && r.time_changed
+        ? `Clase actualizada. Avisa del cambio a ${people(r.people)} con reserva.`
+        : "Clase actualizada.",
+  };
 }
 
-export async function deleteScheduleTemplate(id: string): Promise<ActionResult> {
+export async function deleteSession(sessionId: string): Promise<ActionResult> {
   const supabase = await createClient();
   const guard = await requireAdmin(supabase);
   if (!guard.ok) return guard;
 
-  const { error } = await supabase.from("schedule_templates").delete().eq("id", id);
+  const { error } = await supabase.rpc("delete_session", { p_session_id: sessionId });
   if (error) return { ok: false, error: error.message };
-  revalidatePath("/admin");
-  return { ok: true, message: "Bloque eliminado del horario." };
+
+  revalidateCalendar();
+  return { ok: true, message: "Clase eliminada." };
 }
 
-export async function generateSessionsNow(): Promise<ActionResult> {
+export async function cancelSession(sessionId: string): Promise<ActionResult> {
   const supabase = await createClient();
   const guard = await requireAdmin(supabase);
   if (!guard.ok) return guard;
 
-  const { error } = await supabase.rpc("generate_upcoming_sessions", { weeks_ahead: 3 });
+  const { data, error } = await supabase.rpc("cancel_session", { p_session_id: sessionId });
   if (error) return { ok: false, error: error.message };
-  revalidatePath("/agenda");
-  revalidatePath("/admin");
-  return { ok: true, message: "Calendario actualizado con las próximas 3 semanas." };
+
+  revalidateCalendar();
+  const n = (data as number) ?? 0;
+  return {
+    ok: true,
+    message: n > 0 ? `Clase cancelada. Se devolvió la sesión a ${people(n)}; avísales.` : "Clase cancelada.",
+  };
+}
+
+export async function restoreSession(sessionId: string): Promise<ActionResult> {
+  const supabase = await createClient();
+  const guard = await requireAdmin(supabase);
+  if (!guard.ok) return guard;
+
+  const { error } = await supabase.rpc("restore_session", { p_session_id: sessionId });
+  if (error) return { ok: false, error: error.message };
+
+  revalidateCalendar();
+  return { ok: true, message: "Clase reactivada. Quienes tenían reserva deben volver a reservar." };
+}
+
+// monday: "YYYY-MM-DD" del lunes de la semana (en Chile).
+export async function duplicateWeek(monday: string, weeks: number): Promise<ActionResult> {
+  const supabase = await createClient();
+  const guard = await requireAdmin(supabase);
+  if (!guard.ok) return guard;
+
+  const { data, error } = await supabase.rpc("duplicate_week", { p_monday: monday, p_weeks: weeks });
+  if (error) return { ok: false, error: error.message };
+
+  revalidateCalendar();
+  const r = data as { created: number; skipped: number };
+  if (r.created === 0) return { ok: true, message: "No se creó nada: esas clases ya existían en las semanas siguientes." };
+  const semanas = weeks === 1 ? "la semana siguiente" : `las ${weeks} semanas siguientes`;
+  return {
+    ok: true,
+    message: `Se copiaron ${r.created} clases como borrador a ${semanas}${
+      r.skipped > 0 ? ` (${r.skipped} ya existían)` : ""
+    }. Revísalas y publícalas.`,
+  };
+}
+
+export async function publishWeek(monday: string): Promise<ActionResult> {
+  const supabase = await createClient();
+  const guard = await requireAdmin(supabase);
+  if (!guard.ok) return guard;
+
+  const { data, error } = await supabase.rpc("publish_week", { p_monday: monday });
+  if (error) return { ok: false, error: error.message };
+
+  revalidateCalendar();
+  return { ok: true, message: `Semana publicada: ${data ?? 0} clases ya se pueden reservar.` };
+}
+
+export async function discardWeekDrafts(monday: string): Promise<ActionResult> {
+  const supabase = await createClient();
+  const guard = await requireAdmin(supabase);
+  if (!guard.ok) return guard;
+
+  const { data, error } = await supabase.rpc("discard_week_drafts", { p_monday: monday });
+  if (error) return { ok: false, error: error.message };
+
+  revalidateCalendar();
+  return { ok: true, message: `Se descartaron ${data ?? 0} borradores.` };
 }
 
 export async function createPlan(formData: FormData): Promise<ActionResult> {
@@ -339,7 +476,7 @@ export async function deleteClassType(id: string): Promise<ActionResult> {
   if (!guard.ok) return guard;
 
   const { error } = await supabase.from("class_types").delete().eq("id", id);
-  if (error) return { ok: false, error: friendlyDeleteError(error, "bloques de horario o planes") };
+  if (error) return { ok: false, error: friendlyDeleteError(error, "clases del calendario o planes") };
   revalidatePath("/admin");
   revalidatePath("/agenda");
   return { ok: true, message: "Tipo de clase eliminado." };
@@ -365,45 +502,9 @@ export async function deleteCoach(id: string): Promise<ActionResult> {
   if (!guard.ok) return guard;
 
   const { error } = await supabase.from("coaches").delete().eq("id", id);
-  if (error) return { ok: false, error: friendlyDeleteError(error, "bloques de horario") };
+  if (error) return { ok: false, error: friendlyDeleteError(error, "clases del calendario") };
   revalidatePath("/admin");
   return { ok: true, message: "Entrenador eliminado." };
-}
-
-export async function updateScheduleTemplate(id: string, formData: FormData): Promise<ActionResult> {
-  const supabase = await createClient();
-  const guard = await requireAdmin(supabase);
-  if (!guard.ok) return guard;
-
-  const classTypeId = formData.get("classTypeId") as string;
-  const coachId = (formData.get("coachId") as string) || null;
-  const weekday = Number(formData.get("weekday"));
-  const startTime = formData.get("startTime") as string;
-  const durationMinutes = Number(formData.get("durationMinutes") || 60);
-  const capacity = Number(formData.get("capacity"));
-  const room = (formData.get("room") as string) || null;
-
-  if (!classTypeId || isNaN(weekday) || !startTime || !capacity) {
-    return { ok: false, error: "Completa tipo de clase, día, hora y cupo." };
-  }
-
-  const { error } = await supabase
-    .from("schedule_templates")
-    .update({
-      class_type_id: classTypeId,
-      coach_id: coachId,
-      weekday,
-      start_time: startTime,
-      duration_minutes: durationMinutes,
-      capacity,
-      room,
-    })
-    .eq("id", id);
-
-  if (error) return { ok: false, error: error.message };
-  revalidatePath("/admin");
-  revalidatePath("/agenda");
-  return { ok: true, message: "Bloque actualizado." };
 }
 
 export async function updatePlan(id: string, formData: FormData): Promise<ActionResult> {
