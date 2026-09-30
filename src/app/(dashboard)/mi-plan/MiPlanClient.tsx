@@ -2,21 +2,21 @@
 
 import { useRef, useState, useTransition } from "react";
 import { uploadPayment } from "@/app/actions";
-import { TYPE_LABEL, type ClassCategory } from "@/lib/types";
+import { TYPE_LABEL, planItemsLabel, type PlanItem, type UserPlanItem } from "@/lib/types";
 import { chileDayKey } from "@/lib/time";
 
 type UserPlan = {
   id: string;
-  sessions_used: number;
   expires_at: string | null;
-  plan: { name: string; category: ClassCategory; sessions_count: number };
+  plan: { name: string };
+  items: UserPlanItem[];
 };
 type CatalogPlan = {
   id: string;
   name: string;
-  category: ClassCategory;
-  sessions_count: number;
   price: number;
+  duration_days: number;
+  items: PlanItem[];
 };
 type Payment = {
   id: string;
@@ -67,29 +67,36 @@ export default function MiPlanClient({
         <p className="text-sm text-ink2 mb-6">No tienes planes activos todavía.</p>
       )}
       <div className="flex flex-col gap-3 mb-8">
-        {userPlans.map((p) => {
-          const remaining = p.plan.sessions_count - p.sessions_used;
-          const pct = Math.round((p.sessions_used / p.plan.sessions_count) * 100);
-          return (
-            <div key={p.id} className="rounded-2xl border border-border bg-surface p-4 shadow-sm">
-              <div className="flex items-center justify-between mb-2">
-                <h3 className="font-bold text-sm">{p.plan.name}</h3>
-                <span className="text-[10px] font-bold uppercase px-1.5 py-0.5 rounded bg-surface2 text-ink2">
-                  {TYPE_LABEL[p.plan.category]}
-                </span>
-              </div>
-              <div className="h-2 rounded bg-surface2 overflow-hidden">
-                <div className="h-full rounded" style={{ width: `${pct}%`, background: "var(--accent)" }} />
-              </div>
-              <div className="flex justify-between text-xs font-mono text-ink2 mt-1.5">
-                <span>
-                  Quedan {remaining} de {p.plan.sessions_count} sesiones
-                </span>
-                {p.expires_at && <span>Vence {p.expires_at.split("-").reverse().join("-")}</span>}
-              </div>
+        {userPlans.map((p) => (
+          <div key={p.id} className="rounded-2xl border border-border bg-surface p-4 shadow-sm">
+            <div className="flex items-center justify-between mb-2">
+              <h3 className="font-bold text-sm">{p.plan.name}</h3>
+              {p.expires_at && (
+                <span className="text-xs font-mono text-ink2">Vence {p.expires_at.split("-").reverse().join("-")}</span>
+              )}
             </div>
-          );
-        })}
+            {/* Un contador por cada tipo de clase que incluye el plan */}
+            <div className="flex flex-col gap-2.5">
+              {p.items.map((it) => {
+                const remaining = it.sessions_total - it.sessions_used;
+                const pct = Math.round((it.sessions_used / it.sessions_total) * 100);
+                return (
+                  <div key={it.category}>
+                    <div className="flex justify-between text-xs mb-1">
+                      <span className="font-semibold">{it.category === "grupal" ? "Clases grupales" : `Sesiones ${TYPE_LABEL[it.category]}`}</span>
+                      <span className="font-mono text-ink2">
+                        Quedan {remaining} de {it.sessions_total}
+                      </span>
+                    </div>
+                    <div className="h-2 rounded bg-surface2 overflow-hidden">
+                      <div className="h-full rounded" style={{ width: `${pct}%`, background: "var(--accent)" }} />
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        ))}
       </div>
 
       <h2 className="text-[11px] font-bold uppercase tracking-widest text-ink2 mb-3">
@@ -112,7 +119,7 @@ export default function MiPlanClient({
           >
             {catalog.map((c) => (
               <option key={c.id} value={c.id}>
-                {c.name} · {money(c.price)}
+                {c.name}: {planItemsLabel(c.items)} · {money(c.price)} · {c.duration_days} días
               </option>
             ))}
           </select>

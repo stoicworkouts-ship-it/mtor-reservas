@@ -11,13 +11,13 @@ export default async function MiPlanPage() {
 
   const { data: userPlans } = await supabase
     .from("user_plans")
-    .select("id, sessions_used, status, expires_at, plan:plans(name, category, sessions_count)")
+    .select("id, status, expires_at, plan:plans(name), items:user_plan_items(category, sessions_total, sessions_used)")
     .eq("user_id", user!.id)
     .eq("status", "active");
 
   const { data: catalog } = await supabase
     .from("plans")
-    .select("id, name, category, sessions_count, price")
+    .select("id, name, price, duration_days, items:plan_items(category, sessions_count)")
     .eq("active", true)
     .order("price", { ascending: true });
 
