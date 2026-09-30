@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
-import type { ClassCategory } from "@/lib/types";
+import { CATEGORY_OPTIONS, CATEGORY_SIZE, type ClassCategory } from "@/lib/types";
 
 // needsConfirm: la acción no se aplicó porque afecta a personas con reserva;
 // `error` trae la pregunta para el admin y se vuelve a llamar con force = true.
@@ -159,7 +159,8 @@ export async function createClassType(formData: FormData): Promise<ActionResult>
 
   const name = formData.get("name") as string;
   const category = formData.get("category") as ClassCategory;
-  const defaultCapacity = Number(formData.get("defaultCapacity"));
+  // En 1:1, 2:1… el cupo es fijo (1, 2…); solo en grupal lo elige el admin.
+  const defaultCapacity = CATEGORY_SIZE[category] ?? Number(formData.get("defaultCapacity"));
 
   if (!name || !category || !defaultCapacity) {
     return { ok: false, error: "Completa nombre, categoría y cupo." };
@@ -387,33 +388,43 @@ export async function discardWeekDrafts(monday: string): Promise<ActionResult> {
   return { ok: true, message: `Se descartaron ${data ?? 0} borradores.` };
 }
 
-export async function createPlan(formData: FormData): Promise<ActionResult> {
+// Un plan incluye sesiones de una o más categorías: campos items_grupal, items_dos_uno…
+async function savePlan(id: string | null, formData: FormData): Promise<ActionResult> {
   const supabase = await createClient();
   const guard = await requireAdmin(supabase);
   if (!guard.ok) return guard;
 
-  const name = formData.get("name") as string;
-  const category = formData.get("category") as ClassCategory;
-  const sessionsCount = Number(formData.get("sessionsCount"));
+  const name = (formData.get("name") as string)?.trim();
   const price = Number(formData.get("price"));
   const durationDays = Number(formData.get("durationDays") || 30);
+  const items = CATEGORY_OPTIONS.map((o) => ({
+    category: o.value,
+    sessions: Number(formData.get(`items_${o.value}`) || 0),
+  })).filter((i) => i.sessions > 0);
 
-  if (!name || !category || !sessionsCount || !price) {
-    return { ok: false, error: "Completa nombre, categoría, sesiones y precio." };
+  if (!name || isNaN(price) || price < 0) {
+    return { ok: false, error: "Completa nombre y precio." };
+  }
+  if (items.length === 0) {
+    return { ok: false, error: "Indica cuántas sesiones incluye el plan en al menos una categoría." };
   }
 
-  const { error } = await supabase.from("plans").insert({
-    name,
-    category,
-    sessions_count: sessionsCount,
-    price,
-    duration_days: durationDays,
+  const { error } = await supabase.rpc("save_plan", {
+    p_id: id,
+    p_name: name,
+    p_price: price,
+    p_duration_days: durationDays,
+    p_items: items,
   });
 
   if (error) return { ok: false, error: error.message };
   revalidatePath("/admin");
   revalidatePath("/mi-plan");
-  return { ok: true, message: "Plan creado." };
+  return { ok: true, message: id ? "Plan actualizado." : "Plan creado." };
+}
+
+export async function createPlan(formData: FormData): Promise<ActionResult> {
+  return savePlan(null, formData);
 }
 
 export async function togglePlan(id: string, active: boolean): Promise<ActionResult> {
@@ -454,7 +465,8 @@ export async function updateClassType(id: string, formData: FormData): Promise<A
 
   const name = formData.get("name") as string;
   const category = formData.get("category") as ClassCategory;
-  const defaultCapacity = Number(formData.get("defaultCapacity"));
+  // En 1:1, 2:1… el cupo es fijo (1, 2…); solo en grupal lo elige el admin.
+  const defaultCapacity = CATEGORY_SIZE[category] ?? Number(formData.get("defaultCapacity"));
   if (!name || !category || !defaultCapacity) {
     return { ok: false, error: "Completa nombre, categoría y cupo." };
   }
@@ -508,29 +520,7 @@ export async function deleteCoach(id: string): Promise<ActionResult> {
 }
 
 export async function updatePlan(id: string, formData: FormData): Promise<ActionResult> {
-  const supabase = await createClient();
-  const guard = await requireAdmin(supabase);
-  if (!guard.ok) return guard;
-
-  const name = formData.get("name") as string;
-  const category = formData.get("category") as ClassCategory;
-  const sessionsCount = Number(formData.get("sessionsCount"));
-  const price = Number(formData.get("price"));
-  const durationDays = Number(formData.get("durationDays") || 30);
-
-  if (!name || !category || !sessionsCount || !price) {
-    return { ok: false, error: "Completa nombre, categoría, sesiones y precio." };
-  }
-
-  const { error } = await supabase
-    .from("plans")
-    .update({ name, category, sessions_count: sessionsCount, price, duration_days: durationDays })
-    .eq("id", id);
-
-  if (error) return { ok: false, error: error.message };
-  revalidatePath("/admin");
-  revalidatePath("/mi-plan");
-  return { ok: true, message: "Plan actualizado." };
+  return savePlan(id, formData);
 }
 
 export async function deletePlan(id: string): Promise<ActionResult> {
