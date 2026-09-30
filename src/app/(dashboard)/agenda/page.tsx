@@ -44,7 +44,7 @@ export default async function AgendaPage() {
 
   const { data: userPlans } = await supabase
     .from("user_plans")
-    .select("id, sessions_used, status, plan:plans(id, name, category, sessions_count)")
+    .select("id, status, items:user_plan_items(category, sessions_total, sessions_used)")
     .eq("user_id", user!.id)
     .eq("status", "active")
     .or(`expires_at.is.null,expires_at.gte.${chileDayKey(now)}`);

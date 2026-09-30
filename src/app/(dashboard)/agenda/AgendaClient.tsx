@@ -2,7 +2,7 @@
 
 import { useMemo, useState, useTransition } from "react";
 import { reserveSession, cancelReservation } from "@/app/actions";
-import { TYPE_LABEL, TYPE_VAR, CATEGORY_OPTIONS, type ClassCategory } from "@/lib/types";
+import { TYPE_LABEL, TYPE_VAR, CATEGORY_OPTIONS, type ClassCategory, type UserPlanItem } from "@/lib/types";
 import { chileDayKey, chileTime, dayKeyParts } from "@/lib/time";
 
 const DIAS = ["Dom", "Lun", "Mar", "Mié", "Jue", "Vie", "Sáb"];
@@ -20,8 +20,7 @@ type ReservationRow = { id: string; session_id: string; status: "confirmed" | "w
 
 type UserPlanRow = {
   id: string;
-  sessions_used: number;
-  plan: { name: string; category: ClassCategory; sessions_count: number };
+  items: UserPlanItem[];
 };
 
 export default function AgendaClient({
@@ -58,12 +57,12 @@ export default function AgendaClient({
   function reservationFor(sessionId: string) {
     return reservations.find((r) => r.session_id === sessionId);
   }
-  // Sesiones que le quedan al usuario sumando todos sus planes de esa categoría,
-  // o null si no tiene ningún plan de esa categoría.
+  // Sesiones que le quedan al usuario en esa categoría sumando todos sus planes,
+  // o null si ningún plan incluye esa categoría.
   function remainingFor(category: ClassCategory) {
-    const plans = userPlans.filter((p) => p.plan.category === category);
-    if (plans.length === 0) return null;
-    return plans.reduce((sum, p) => sum + p.plan.sessions_count - p.sessions_used, 0);
+    const items = userPlans.flatMap((p) => p.items).filter((i) => i.category === category);
+    if (items.length === 0) return null;
+    return items.reduce((sum, i) => sum + i.sessions_total - i.sessions_used, 0);
   }
 
   function showToast(msg: string) {
