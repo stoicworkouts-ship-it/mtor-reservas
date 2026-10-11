@@ -3,7 +3,9 @@ import { NextResponse, type NextRequest } from "next/server";
 
 type CookieToSet = { name: string; value: string; options?: CookieOptions };
 
-const PUBLIC_PATHS = ["/login"];
+// /api/recordatorios la llama Supabase (sin sesión) y se protege con CRON_SECRET.
+// /auth/callback recibe a la persona de vuelta desde Google, aún sin sesión.
+const PUBLIC_PATHS = ["/login", "/auth/callback", "/api/recordatorios"];
 
 export async function updateSession(request: NextRequest) {
   let response = NextResponse.next({ request });
