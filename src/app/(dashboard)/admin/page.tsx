@@ -56,6 +56,20 @@ export default async function AdminPage() {
     bookedBySession[r.session_id] = r.booked;
   });
 
+  // Quiénes reservaron en las próximas clases (para recordarles por WhatsApp).
+  const { data: reservationRows } = await supabase
+    .from("reservations")
+    .select("id, session_id, status, profile:profiles(full_name, phone), session:sessions!inner(starts_at)")
+    .in("status", ["confirmed", "waitlisted"])
+    .gte("session.starts_at", now.toISOString())
+    .lte("session.starts_at", rangeEnd.toISOString())
+    .order("created_at", { ascending: true });
+
+  const peopleBySession: Record<string, any[]> = {};
+  (reservationRows ?? []).forEach((r: any) => {
+    (peopleBySession[r.session_id] ??= []).push({ id: r.id, status: r.status, profile: r.profile });
+  });
+
   const { data: classTypes } = await supabase
     .from("class_types")
     .select("id, name, category, default_capacity")
@@ -76,6 +90,7 @@ export default async function AdminPage() {
       payments={(payments as any) ?? []}
       sessions={sessions as any}
       bookedBySession={bookedBySession}
+      peopleBySession={peopleBySession}
       classTypes={(classTypes as any) ?? []}
       coaches={(coaches as any) ?? []}
       plans={(allPlans as any) ?? []}

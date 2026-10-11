@@ -32,7 +32,9 @@ import {
   type ClassCategory,
   type PlanItem,
 } from "@/lib/types";
-import { addDays, chileDayKey, chileTime, dayKeyParts, mondayOf } from "@/lib/time";
+import { addDays, chileDayKey, chileLongDate, chileTime, dayKeyParts, mondayOf } from "@/lib/time";
+import { whatsappLink } from "@/lib/phone";
+import Toast from "@/components/Toast";
 
 function money(n: number) {
   return "$" + n.toLocaleString("es-CL");
@@ -65,6 +67,11 @@ type SessionRow = {
   class_type: { name: string; category: ClassCategory };
   coach: { display_name: string } | null;
 };
+type Person = {
+  id: string;
+  status: "confirmed" | "waitlisted";
+  profile: { full_name: string; phone: string | null } | null;
+};
 type ClassType = { id: string; name: string; category: ClassCategory; default_capacity: number };
 type Coach = { id: string; display_name: string; active: boolean };
 type PlanRow = {
@@ -87,6 +94,7 @@ export default function AdminClient({
   payments,
   sessions,
   bookedBySession,
+  peopleBySession,
   classTypes,
   coaches,
   plans,
@@ -94,6 +102,7 @@ export default function AdminClient({
   payments: Payment[];
   sessions: SessionRow[];
   bookedBySession: Record<string, number>;
+  peopleBySession: Record<string, Person[]>;
   classTypes: ClassType[];
   coaches: Coach[];
   plans: PlanRow[];
@@ -134,17 +143,24 @@ export default function AdminClient({
   }
 
   return (
-    <section className="pb-10">
-      <div className="flex gap-1 overflow-x-auto mb-5 -mt-1">
+    <section>
+      <h1 className="font-display text-[34px] leading-none uppercase mt-2 mb-4">Panel admin</h1>
+      <div className="flex gap-2 overflow-x-auto mb-5 -mx-5 px-5">
         {TABS.map((t) => (
           <button
             key={t.id}
             onClick={() => setTab(t.id)}
-            className={`flex-none px-3 py-1.5 rounded-full text-xs font-bold border ${
-              tab === t.id ? "border-transparent bg-ink text-bg" : "border-border text-ink2"
+            aria-pressed={tab === t.id}
+            className={`flex-none flex items-center gap-1.5 h-9 px-3.5 rounded-full text-[13px] ${
+              tab === t.id ? "bg-ink text-bg font-bold" : "border border-border text-ink font-semibold"
             }`}
           >
             {t.label}
+            {t.id === "pagos" && payments.length > 0 && (
+              <span className="min-w-[18px] h-[18px] px-1 rounded-full bg-accent text-accentInk text-[11px] font-bold inline-flex items-center justify-center">
+                {payments.length}
+              </span>
+            )}
           </button>
         ))}
       </div>
@@ -154,6 +170,7 @@ export default function AdminClient({
         <CalendarioTab
           sessions={sessions}
           bookedBySession={bookedBySession}
+          peopleBySession={peopleBySession}
           classTypes={classTypes}
           coaches={coaches}
           pending={pending}
@@ -185,11 +202,7 @@ export default function AdminClient({
         </div>
       )}
 
-      {toast && (
-        <div className="fixed left-1/2 bottom-6 -translate-x-1/2 rounded-full bg-ink text-bg px-4 py-2.5 text-sm font-semibold shadow-lg z-50 max-w-[90vw] text-center">
-          {toast}
-        </div>
-      )}
+      {toast && <Toast message={toast} />}
     </section>
   );
 }
@@ -197,8 +210,8 @@ export default function AdminClient({
 function PagosTab({ payments, pending, run }: { payments: Payment[]; pending: boolean; run: RunFn }) {
   return (
     <div>
-      <h2 className="text-[11px] font-bold uppercase tracking-widest text-ink2 mb-3">Pagos pendientes</h2>
-      <div className="rounded-2xl border border-border bg-surface p-4 shadow-sm">
+      <h2 className="label text-ink2 mb-3">Pagos pendientes</h2>
+      <div className="rounded-2xl border border-border bg-surface p-4">
         {payments.length === 0 && <p className="text-sm text-ink2">No hay pagos pendientes.</p>}
         {payments.map((p, i) => (
           <div
@@ -245,6 +258,7 @@ function PagosTab({ payments, pending, run }: { payments: Payment[]; pending: bo
 function CalendarioTab({
   sessions,
   bookedBySession,
+  peopleBySession,
   classTypes,
   coaches,
   pending,
@@ -252,6 +266,7 @@ function CalendarioTab({
 }: {
   sessions: SessionRow[];
   bookedBySession: Record<string, number>;
+  peopleBySession: Record<string, Person[]>;
   classTypes: ClassType[];
   coaches: Coach[];
   pending: boolean;
@@ -263,6 +278,7 @@ function CalendarioTab({
   const [adding, setAdding] = useState<string | null>(null);
   const [editing, setEditing] = useState<string | null>(null);
   const [confirmCancel, setConfirmCancel] = useState<string | null>(null);
+  const [showPeople, setShowPeople] = useState<string | null>(null);
   const [showDuplicate, setShowDuplicate] = useState(false);
   const [confirmDiscard, setConfirmDiscard] = useState(false);
   const [weeks, setWeeks] = useState(1);
@@ -300,6 +316,7 @@ function CalendarioTab({
     setAdding(null);
     setEditing(null);
     setConfirmCancel(null);
+    setShowPeople(null);
     setShowDuplicate(false);
     setConfirmDiscard(false);
   }
@@ -315,7 +332,7 @@ function CalendarioTab({
   return (
     <div>
       {/* Navegación de semanas */}
-      <div className="rounded-2xl border border-border bg-surface p-4 shadow-sm mb-4">
+      <div className="rounded-2xl border border-border bg-surface p-4 mb-4">
         <div className="flex items-center justify-between gap-2">
           <button
             disabled={monday <= minMonday}
@@ -448,11 +465,11 @@ function CalendarioTab({
           const { day } = dayKeyParts(key);
           const isPastDay = key < todayKey;
           return (
-            <div key={key} className={`rounded-2xl border border-border bg-surface p-4 shadow-sm ${isPastDay ? "opacity-60" : ""}`}>
+            <div key={key} className={`rounded-2xl border border-border bg-surface p-4 ${isPastDay ? "opacity-60" : ""}`}>
               <div className="flex items-center justify-between mb-1">
                 <h3 className="font-bold text-sm">
                   {DIAS[idx]} {day}
-                  {key === todayKey && <span style={{ color: "var(--accent)" }}> · hoy</span>}
+                  {key === todayKey && <span className="text-accentText"> · hoy</span>}
                 </h3>
                 {!isPastDay && classTypes.length > 0 && adding !== key && (
                   <button
@@ -474,6 +491,7 @@ function CalendarioTab({
                 const future = new Date(s.starts_at).getTime() > now;
                 const isDraft = s.status === "draft";
                 const cancelled = s.status === "cancelled";
+                const people = peopleBySession[s.id] ?? [];
 
                 if (editing === s.id) {
                   return (
@@ -494,7 +512,7 @@ function CalendarioTab({
                 return (
                   <div key={s.id} className={`py-2 text-xs ${i < list.length - 1 ? "border-b border-border" : ""}`}>
                     <div className={`flex items-center gap-2.5 ${cancelled ? "opacity-60" : ""}`}>
-                      <time className="font-mono font-semibold w-11 flex-none tabular">{chileTime(s.starts_at)}</time>
+                      <time className="font-display text-lg leading-none w-12 flex-none tabular">{chileTime(s.starts_at)}</time>
                       <div className="flex-1 min-w-0">
                         <div className="font-semibold">
                           {s.class_type.name} · {TYPE_LABEL[s.class_type.category]}
@@ -525,6 +543,14 @@ function CalendarioTab({
                           </button>
                         ) : (
                           <>
+                            {people.length > 0 && (
+                              <button
+                                onClick={() => setShowPeople(showPeople === s.id ? null : s.id)}
+                                className="rounded-md px-2.5 py-1 text-[11px] font-bold bg-surface2 text-ink"
+                              >
+                                Reservas ({people.length})
+                              </button>
+                            )}
                             <button
                               disabled={pending}
                               onClick={() => {
@@ -558,6 +584,8 @@ function CalendarioTab({
                         )}
                       </div>
                     )}
+
+                    {showPeople === s.id && !cancelled && <PeopleList session={s} people={people} />}
 
                     {confirmCancel === s.id && (
                       <div className="mt-2 rounded-lg bg-surface2 p-2.5">
@@ -600,6 +628,47 @@ function CalendarioTab({
           );
         })}
       </div>
+    </div>
+  );
+}
+
+// Quiénes reservaron una clase, con un botón para recordarles por WhatsApp.
+function PeopleList({ session, people }: { session: SessionRow; people: Person[] }) {
+  function reminderText(fullName: string) {
+    const name = fullName.trim().split(/\s+/)[0];
+    return (
+      `Hola ${name}, te recordamos tu clase de ${session.class_type.name} el ` +
+      `${chileLongDate(session.starts_at)} a las ${chileTime(session.starts_at)} en MTOR. ` +
+      "Si no puedes venir, cancela desde la app con al menos 2 horas de anticipación para no perder la sesión. ¡Te esperamos!"
+    );
+  }
+
+  return (
+    <div className="mt-2 rounded-lg bg-surface2 p-2.5 flex flex-col gap-2">
+      {people.map((p) => (
+        <div key={p.id} className="flex items-center justify-between gap-2">
+          <div className="min-w-0">
+            <div className="font-semibold truncate">{p.profile?.full_name ?? "—"}</div>
+            <div className="text-[11px] text-ink2">
+              {p.status === "waitlisted" ? "Lista de espera" : p.profile?.phone ?? "Sin teléfono"}
+            </div>
+          </div>
+          {p.status === "confirmed" && p.profile?.phone && (
+            <a
+              href={whatsappLink(p.profile.phone, reminderText(p.profile.full_name))}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="flex-none flex items-center gap-1.5 min-h-[40px] rounded-lg px-3 text-[13px] font-bold"
+              style={{ background: "var(--whatsapp)", color: "var(--whatsapp-ink)" }}
+            >
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <path d="M21 11.5a8.5 8.5 0 0 1-12.6 7.4L3 21l2.1-5.3A8.5 8.5 0 1 1 21 11.5z" />
+              </svg>
+              Recordar
+            </a>
+          )}
+        </div>
+      ))}
     </div>
   );
 }
@@ -882,8 +951,8 @@ function ConfigTab({
     <div className="flex flex-col gap-8">
       {/* Tipos de clase */}
       <div>
-        <h2 className="text-[11px] font-bold uppercase tracking-widest text-ink2 mb-3">Tipos de clase</h2>
-        <div className="rounded-2xl border border-border bg-surface p-4 shadow-sm mb-3">
+        <h2 className="label text-ink2 mb-3">Tipos de clase</h2>
+        <div className="rounded-2xl border border-border bg-surface p-4 mb-3">
           {classTypes.length === 0 && <p className="text-sm text-ink2">Sin tipos de clase todavía.</p>}
           {classTypes.map((c, i) =>
             editingClassType === c.id ? (
@@ -938,7 +1007,7 @@ function ConfigTab({
             const fd = new FormData(e.currentTarget);
             run(() => createClassType(fd), () => classTypeFormRef.current?.reset());
           }}
-          className="rounded-2xl border border-border bg-surface p-4 shadow-sm flex flex-col gap-2.5"
+          className="rounded-2xl border border-border bg-surface p-4 flex flex-col gap-2.5"
         >
           <Field label="Nombre">
             <input name="name" required placeholder="ej. Funcional, Spinning, Entrenamiento personalizado" className="w-full rounded-lg border border-border bg-bg px-3 py-2 text-sm" />
@@ -952,8 +1021,8 @@ function ConfigTab({
 
       {/* Entrenadores */}
       <div>
-        <h2 className="text-[11px] font-bold uppercase tracking-widest text-ink2 mb-3">Entrenadores</h2>
-        <div className="rounded-2xl border border-border bg-surface p-4 shadow-sm mb-3">
+        <h2 className="label text-ink2 mb-3">Entrenadores</h2>
+        <div className="rounded-2xl border border-border bg-surface p-4 mb-3">
           {coaches.length === 0 && <p className="text-sm text-ink2">Sin entrenadores todavía.</p>}
           {coaches.map((c, i) =>
             editingCoach === c.id ? (
@@ -1002,7 +1071,7 @@ function ConfigTab({
             const fd = new FormData(e.currentTarget);
             run(() => createCoach(fd), () => coachFormRef.current?.reset());
           }}
-          className="rounded-2xl border border-border bg-surface p-4 shadow-sm flex gap-2.5"
+          className="rounded-2xl border border-border bg-surface p-4 flex gap-2.5"
         >
           <input name="displayName" required placeholder="Nombre del entrenador" className="flex-1 rounded-lg border border-border bg-bg px-3 py-2 text-sm" />
           <button disabled={pending} type="submit" className="rounded-lg px-4 text-xs font-bold text-accentInk disabled:opacity-50" style={{ background: "var(--accent)" }}>
@@ -1058,8 +1127,8 @@ function PlanesTab({ plans, pending, run }: { plans: PlanRow[]; pending: boolean
 
   return (
     <div className="flex flex-col gap-4">
-      <h2 className="text-[11px] font-bold uppercase tracking-widest text-ink2">Catálogo de planes</h2>
-      <div className="rounded-2xl border border-border bg-surface p-4 shadow-sm">
+      <h2 className="label text-ink2">Catálogo de planes</h2>
+      <div className="rounded-2xl border border-border bg-surface p-4">
         {plans.length === 0 && <p className="text-sm text-ink2">Sin planes todavía.</p>}
         {plans.map((p, i) =>
           editingPlan === p.id ? (
@@ -1130,7 +1199,7 @@ function PlanesTab({ plans, pending, run }: { plans: PlanRow[]; pending: boolean
           const fd = new FormData(e.currentTarget);
           run(() => createPlan(fd), () => formRef.current?.reset());
         }}
-        className="rounded-2xl border border-border bg-surface p-4 shadow-sm flex flex-col gap-2.5"
+        className="rounded-2xl border border-border bg-surface p-4 flex flex-col gap-2.5"
       >
         <p className="text-xs font-bold text-ink2 uppercase tracking-wide">Crear plan</p>
         <Field label="Nombre">
