@@ -2,8 +2,9 @@
 
 import { useRef, useState, useTransition } from "react";
 import { uploadPayment } from "@/app/actions";
-import { TYPE_LABEL, planItemsLabel, type PlanItem, type UserPlanItem } from "@/lib/types";
-import { chileDayKey } from "@/lib/time";
+import { TYPE_LABEL, TYPE_VAR, planItemsLabel, type PlanItem, type UserPlanItem } from "@/lib/types";
+import { chileDayKey, dayKeyParts } from "@/lib/time";
+import Toast from "@/components/Toast";
 
 type UserPlan = {
   id: string;
@@ -28,6 +29,28 @@ type Payment = {
 
 function money(n: number) {
   return "$" + n.toLocaleString("es-CL");
+}
+
+const MESES_LARGOS = ["enero", "febrero", "marzo", "abril", "mayo", "junio", "julio", "agosto", "septiembre", "octubre", "noviembre", "diciembre"];
+
+// Días que quedan hasta el vencimiento ("YYYY-MM-DD", último día válido incluido).
+function daysLeft(expiresAt: string) {
+  const today = chileDayKey(new Date());
+  return Math.round((Date.parse(expiresAt) - Date.parse(today)) / 86400000) + 1;
+}
+
+// Las tres estrellas del logo: cuánto del plan se ha usado.
+function Stars({ used, total }: { used: number; total: number }) {
+  const filled = total > 0 ? Math.min(3, Math.ceil((used / total) * 3)) : 0;
+  return (
+    <div className="flex gap-[3px] pt-1" role="img" aria-label={`Has usado ${used} de ${total} sesiones`}>
+      {[0, 1, 2].map((i) => (
+        <svg key={i} width="18" height="18" viewBox="0 0 24 24" fill={i < filled ? "var(--accent)" : "var(--border-strong)"} aria-hidden="true">
+          <path d="M12 2l2.9 6.6 7.1.6-5.4 4.7 1.6 7L12 17.3 5.8 21l1.6-7L2 9.2l7.1-.6z" />
+        </svg>
+      ))}
+    </div>
+  );
 }
 
 export default function MiPlanClient({
@@ -58,65 +81,80 @@ export default function MiPlanClient({
     });
   }
 
+  const inputClass = "w-full h-12 rounded-xl border border-border bg-bg px-3.5 text-[15px] text-ink";
+
   return (
-    <section className="pb-10">
-      <h2 className="text-[11px] font-bold uppercase tracking-widest text-ink2 mb-3">
-        Tus planes activos
-      </h2>
+    <section>
+      <h1 className="font-display text-[34px] leading-none uppercase mt-2 mb-4">Mi plan</h1>
+
       {userPlans.length === 0 && (
-        <p className="text-sm text-ink2 mb-6">No tienes planes activos todavía.</p>
+        <div className="rounded-[20px] border border-border bg-surface p-5 mb-4">
+          <p className="font-bold">No tienes un plan activo.</p>
+          <p className="text-sm text-ink2 mt-1">
+            Elige uno abajo y sube el comprobante de transferencia para empezar a reservar.
+          </p>
+        </div>
       )}
-      <div className="flex flex-col gap-3 mb-8">
-        {userPlans.map((p) => (
-          <div key={p.id} className="rounded-2xl border border-border bg-surface p-4 shadow-sm">
-            <div className="flex items-center justify-between mb-2">
-              <h3 className="font-bold text-sm">{p.plan.name}</h3>
-              {p.expires_at && (
-                <span className="text-xs font-mono text-ink2">Vence {p.expires_at.split("-").reverse().join("-")}</span>
-              )}
-            </div>
-            {/* Un contador por cada tipo de clase que incluye el plan */}
-            <div className="flex flex-col gap-2.5">
+      <div className="flex flex-col gap-3 mb-4">
+        {userPlans.map((p) => {
+          const used = p.items.reduce((sum, it) => sum + it.sessions_used, 0);
+          const total = p.items.reduce((sum, it) => sum + it.sessions_total, 0);
+          const expires = p.expires_at ? dayKeyParts(p.expires_at) : null;
+          const left = p.expires_at ? daysLeft(p.expires_at) : null;
+          return (
+            <article key={p.id} className="rounded-[20px] border border-border bg-surface p-5 flex flex-col gap-[18px]">
+              <div className="flex justify-between items-start gap-3">
+                <div className="min-w-0">
+                  <div className="label text-success">Activo</div>
+                  <h2 className="font-display text-[26px] leading-tight uppercase">{p.plan.name}</h2>
+                  {expires && left !== null && (
+                    <p className="text-[13px] text-ink2">
+                      Vence el {expires.day} de {MESES_LARGOS[expires.month]} ·{" "}
+                      {left <= 1 ? "último día" : `quedan ${left} días`}
+                    </p>
+                  )}
+                </div>
+                <Stars used={used} total={total} />
+              </div>
+
+              {/* Un contador por cada tipo de clase que incluye el plan */}
               {p.items.map((it) => {
                 const remaining = it.sessions_total - it.sessions_used;
                 const pct = Math.round((it.sessions_used / it.sessions_total) * 100);
                 return (
-                  <div key={it.category}>
-                    <div className="flex justify-between text-xs mb-1">
-                      <span className="font-semibold">{it.category === "grupal" ? "Clases grupales" : `Sesiones ${TYPE_LABEL[it.category]}`}</span>
-                      <span className="font-mono text-ink2">
-                        Quedan {remaining} de {it.sessions_total}
+                  <div key={it.category} className="flex flex-col gap-2">
+                    <div className="flex justify-between items-baseline gap-2">
+                      <span className="font-semibold text-[15px] flex items-center gap-2">
+                        <span className="w-2 h-2 rounded-full" style={{ background: TYPE_VAR[it.category] }} />
+                        {it.category === "grupal" ? "Clases grupales" : `Sesiones ${TYPE_LABEL[it.category]}`}
+                      </span>
+                      <span className="text-sm text-ink2">
+                        <b className="font-display font-normal text-2xl text-ink">{remaining}</b> de {it.sessions_total}{" "}
+                        disponibles
                       </span>
                     </div>
-                    <div className="h-2 rounded bg-surface2 overflow-hidden">
-                      <div className="h-full rounded" style={{ width: `${pct}%`, background: "var(--accent)" }} />
+                    <div className="h-1.5 rounded-full bg-border overflow-hidden">
+                      <div className="h-full rounded-full" style={{ width: `${pct}%`, background: TYPE_VAR[it.category] }} />
                     </div>
                   </div>
                 );
               })}
-            </div>
-          </div>
-        ))}
+            </article>
+          );
+        })}
       </div>
 
-      <h2 className="text-[11px] font-bold uppercase tracking-widest text-ink2 mb-3">
-        Renovar o agregar un plan
-      </h2>
       <form
         ref={formRef}
         onSubmit={handleSubmit}
-        className="rounded-2xl border border-border bg-surface p-4 shadow-sm mb-8"
+        className="rounded-[20px] border border-border bg-surface p-5 flex flex-col gap-3.5 mb-4"
       >
-        <div className="mb-3">
-          <label htmlFor="planId" className="block text-xs font-semibold text-ink2 mb-1">
+        <h2 className="label text-ink2">Renovar o agregar un plan</h2>
+        <div>
+          <label htmlFor="planId" className="label block text-[12px] text-ink2 mb-1.5">
             Plan
           </label>
-          <select
-            id="planId"
-            name="planId"
-            required
-            className="w-full rounded-lg border border-border bg-bg px-3 py-2 text-sm"
-          >
+          <select id="planId" name="planId" required className={inputClass}>
             {catalog.map((c) => (
               <option key={c.id} value={c.id}>
                 {c.name}: {planItemsLabel(c.items)} · {money(c.price)} · {c.duration_days} días
@@ -125,8 +163,8 @@ export default function MiPlanClient({
           </select>
         </div>
 
-        <div className="rounded-xl bg-surface2 p-3 text-xs leading-relaxed mb-3">
-          <span className="font-display text-base block mb-1">Datos para transferencia</span>
+        <div className="rounded-xl bg-surface2 p-3.5 text-[13px] leading-relaxed">
+          <span className="label block text-ink mb-1">Datos para transferencia</span>
           <b>MTOR Entrenamiento SpA</b> · RUT 76.543.210-1
           <br />
           Banco Estado · Cuenta Corriente N° 000-1234567-8
@@ -136,8 +174,8 @@ export default function MiPlanClient({
           Incluye tu nombre completo en el comentario de la transferencia.
         </div>
 
-        <div className="mb-3">
-          <label htmlFor="file" className="block text-xs font-semibold text-ink2 mb-1">
+        <div>
+          <label htmlFor="file" className="label block text-[12px] text-ink2 mb-1.5">
             Comprobante (foto o PDF)
           </label>
           <input
@@ -146,56 +184,58 @@ export default function MiPlanClient({
             type="file"
             accept="image/*,.pdf"
             required
-            className="w-full rounded-lg border border-border bg-bg px-3 py-2 text-sm"
+            className="w-full rounded-xl border border-border bg-bg px-3 py-2.5 text-sm file:mr-3 file:rounded-lg file:border-0 file:bg-surface2 file:px-3 file:py-1.5 file:text-ink file:font-semibold"
           />
         </div>
 
         <button
           type="submit"
           disabled={pending}
-          className="w-full rounded-lg py-2.5 text-sm font-bold text-accentInk disabled:opacity-50"
-          style={{ background: "var(--accent)" }}
+          className="label text-[17px] tracking-[0.08em] h-[52px] rounded-xl bg-accent text-accentInk flex items-center justify-center gap-2 disabled:opacity-50"
         >
-          {pending ? "Enviando…" : "Enviar comprobante"}
+          <svg
+            width="18"
+            height="18"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2.2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            aria-hidden="true"
+          >
+            <path d="M12 16V4M6 10l6-6 6 6" />
+            <path d="M4 20h16" />
+          </svg>
+          {pending ? "Enviando…" : "Subir comprobante"}
         </button>
+        <p className="text-xs text-ink2 text-center -mt-1">El admin revisa la transferencia y activa tu plan.</p>
       </form>
 
-      <h2 className="text-[11px] font-bold uppercase tracking-widest text-ink2 mb-3">
-        Tus comprobantes
-      </h2>
-      <div className="rounded-2xl border border-border bg-surface p-4 shadow-sm">
-        {payments.length === 0 && (
-          <p className="text-sm text-ink2">No has subido comprobantes todavía.</p>
-        )}
+      <div className="rounded-[20px] border border-border bg-surface p-5">
+        <h2 className="label text-ink2 mb-2">Tus comprobantes</h2>
+        {payments.length === 0 && <p className="text-sm text-ink2">No has subido comprobantes todavía.</p>}
         {payments.map((p, i) => (
           <div
             key={p.id}
-            className={`flex items-center justify-between gap-2 py-2.5 text-xs ${
+            className={`flex items-center justify-between gap-2 py-3 text-sm ${
               i < payments.length - 1 ? "border-b border-border" : ""
             }`}
           >
             <div>
-              <div>{p.plan.name}</div>
-              <div className="text-ink2 mt-0.5">
+              <div className="font-semibold">{p.plan.name}</div>
+              <div className="text-[13px] text-ink2 mt-0.5">
                 {money(p.amount)} · {chileDayKey(p.created_at).split("-").reverse().join("-")}
               </div>
             </div>
             <span
-              className="text-[10px] font-bold uppercase px-2 py-1 rounded-full"
-              style={{
-                background:
-                  p.status === "approved"
-                    ? "var(--success-bg)"
-                    : p.status === "rejected"
-                    ? "var(--danger-bg)"
-                    : "var(--warning-bg)",
-                color:
-                  p.status === "approved"
-                    ? "var(--success)"
-                    : p.status === "rejected"
-                    ? "var(--danger)"
-                    : "var(--warning)",
-              }}
+              className={`label text-[11px] tracking-[0.1em] px-2.5 py-1 rounded-full ${
+                p.status === "approved"
+                  ? "bg-successBg text-success"
+                  : p.status === "rejected"
+                  ? "bg-dangerBg text-danger"
+                  : "bg-warningBg text-warning"
+              }`}
             >
               {p.status === "approved" ? "Aprobado" : p.status === "rejected" ? "Rechazado" : "Pendiente"}
             </span>
@@ -203,11 +243,7 @@ export default function MiPlanClient({
         ))}
       </div>
 
-      {toast && (
-        <div className="fixed left-1/2 bottom-6 -translate-x-1/2 rounded-full bg-ink text-bg px-4 py-2.5 text-sm font-semibold shadow-lg z-50">
-          {toast}
-        </div>
-      )}
+      {toast && <Toast message={toast} />}
     </section>
   );
 }
