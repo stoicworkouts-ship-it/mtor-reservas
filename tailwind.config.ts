@@ -14,7 +14,9 @@ const config: Config = {
         border: "var(--border)",
         ink: "var(--text)",
         ink2: "var(--text-2)",
+        borderStrong: "var(--border-strong)",
         accent: "var(--accent)",
+        accentText: "var(--accent-text)",
         accentInk: "var(--accent-ink)",
         grupal: "var(--grupal)",
         dosuno: "var(--dosuno)",
@@ -29,7 +31,7 @@ const config: Config = {
       fontFamily: {
         display: ["var(--font-display)"],
         body: ["var(--font-body)"],
-        mono: ["var(--font-mono)"],
+        label: ["var(--font-label)"],
       },
     },
   },
