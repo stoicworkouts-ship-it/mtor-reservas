@@ -24,6 +24,13 @@ export function chileTime(date: Date | string): string {
   });
 }
 
+// "martes 7 de octubre" en Chile.
+export function chileLongDate(date: Date | string): string {
+  return new Date(date)
+    .toLocaleDateString("es-CL", { timeZone: TZ, weekday: "long", day: "numeric", month: "long" })
+    .replace(",", "");
+}
+
 // Día de la semana (0 = domingo), día del mes y mes (0 = enero) de una clave "YYYY-MM-DD".
 export function dayKeyParts(key: string) {
   const [y, m, d] = key.split("-").map(Number);
