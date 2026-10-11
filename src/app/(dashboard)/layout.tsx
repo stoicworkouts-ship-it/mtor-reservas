@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import NavTabs from "@/components/NavTabs";
+import PhoneForm from "@/components/PhoneForm";
 
 export default async function DashboardLayout({
   children,
@@ -18,16 +19,16 @@ export default async function DashboardLayout({
 
   const { data: profile } = await supabase
     .from("profiles")
-    .select("role")
+    .select("role, phone")
     .eq("id", user.id)
     .single();
 
   const isAdmin = profile?.role === "admin";
 
   return (
-    <main className="max-w-2xl mx-auto px-4 pb-10">
+    <main className="max-w-2xl mx-auto px-5 pb-28">
       <NavTabs isAdmin={isAdmin} />
-      {children}
+      {profile?.phone ? children : <PhoneForm />}
     </main>
   );
 }
