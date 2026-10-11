@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { CATEGORY_OPTIONS, CATEGORY_SIZE, type ClassCategory } from "@/lib/types";
+import { normalizePhone } from "@/lib/phone";
 
 // needsConfirm: la acción no se aplicó porque afecta a personas con reserva;
 // `error` trae la pregunta para el admin y se vuelve a llamar con force = true.
@@ -136,6 +137,24 @@ export async function rejectPayment(paymentId: string): Promise<ActionResult> {
 
   revalidatePath("/admin");
   return { ok: true, message: "Pago rechazado." };
+}
+
+// El teléfono se pide al crear la cuenta; quien no lo tiene lo agrega al entrar.
+export async function savePhone(formData: FormData): Promise<ActionResult> {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return { ok: false, error: "Debes iniciar sesión." };
+
+  const phone = normalizePhone(String(formData.get("phone") ?? ""));
+  if (!phone) return { ok: false, error: "Revisa el número: debe ser un celular, por ejemplo 9 1234 5678." };
+
+  const { error } = await supabase.from("profiles").update({ phone }).eq("id", user.id);
+  if (error) return { ok: false, error: error.message };
+
+  revalidatePath("/", "layout");
+  return { ok: true, message: "Número guardado." };
 }
 
 // ---------------------------------------------------------------

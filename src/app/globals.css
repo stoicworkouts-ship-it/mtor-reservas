@@ -2,52 +2,34 @@
 @tailwind components;
 @tailwind utilities;
 
+/* Colores del logo: fondo negro, blanco y rojo M-TOR. El rojo de relleno
+   (--accent) es para botones; para texto rojo se usa --accent-text, que se
+   lee mejor sobre negro. */
 :root {
-  --bg: #f7f4ee;
-  --surface: #ffffff;
-  --surface-2: #efe9dd;
-  --border: #ded6c4;
-  --text: #211d17;
-  --text-2: #726a59;
-  --accent: #e8491d;
+  --bg: #0a0a0a;
+  --surface: #161618;
+  --surface-2: #222226;
+  --border: #2c2c31;
+  --border-strong: #3a3a40;
+  --text: #f5f5f4;
+  --text-2: #a3a3a8;
+  --accent: #d42a31;
+  --accent-text: #f04a4e;
   --accent-ink: #ffffff;
-  --grupal: #2e6fed;
-  --unouno: #1f9d7c;
-  --dosuno: #e8491d;
-  --tresuno: #7c4fe0;
-  --cuatrouno: #c74f92;
-  --success: #2e7d4f;
-  --success-bg: #e4f1e8;
-  --warning: #b9800f;
-  --warning-bg: #f8ebd3;
-  --danger: #c23b3b;
-  --danger-bg: #f8e1df;
-  color-scheme: light;
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --bg: #15130f;
-    --surface: #1e1b15;
-    --surface-2: #2a2620;
-    --border: #3b362b;
-    --text: #f4efe4;
-    --text-2: #b3ab99;
-    --accent: #ff6a3d;
-    --accent-ink: #1b1200;
-    --grupal: #6c9bff;
-    --unouno: #4bcda3;
-    --dosuno: #ff6a3d;
-    --tresuno: #b39bff;
-    --cuatrouno: #e792bd;
-    --success: #57be84;
-    --success-bg: #1d3327;
-    --warning: #e7b759;
-    --warning-bg: #3a2e16;
-    --danger: #e97d7d;
-    --danger-bg: #3a2020;
-    color-scheme: dark;
-  }
+  --grupal: #f5f5f4;
+  --unouno: #f2b33d;
+  --dosuno: #5aa9f0;
+  --tresuno: #9b87f5;
+  --cuatrouno: #4cc9a0;
+  --success: #3fbf7f;
+  --success-bg: #12291d;
+  --warning: #f2b33d;
+  --warning-bg: #2e2410;
+  --danger: #f04a4e;
+  --danger-bg: #2a1416;
+  --whatsapp: #25d366;
+  --whatsapp-ink: #06240f;
+  color-scheme: dark;
 }
 
 * {
@@ -61,4 +43,20 @@ body {
 
 .tabular {
   font-variant-numeric: tabular-nums;
+}
+
+@layer components {
+  /* Hexágono del logo (punta arriba). */
+  .hex {
+    clip-path: polygon(50% 0, 100% 25%, 100% 75%, 50% 100%, 0 75%, 0 25%);
+  }
+
+  /* Etiquetas en mayúsculas espaciadas, como "La ruta para mejorar tu vida". */
+  .label {
+    font-family: var(--font-label);
+    font-weight: 700;
+    font-size: 13px;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+  }
 }
